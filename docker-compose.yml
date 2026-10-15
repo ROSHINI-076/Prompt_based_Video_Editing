@@ -1,0 +1,111 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: incubrix
+      POSTGRES_PASSWORD: incubrix
+      POSTGRES_DB: incubrix
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incubrix"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  minio:
+    image: alpine/minio:latest-release
+    user: "0:0"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  minio-init:
+    build: .
+    environment:
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: incubrix
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["python", "scripts/init_minio.py"]
+    volumes:
+      - .:/app
+    restart: "no"
+
+  api:
+    build: .
+    command: uvicorn incubrix.api.app:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      DATABASE_URL: postgresql+psycopg2://incubrix:incubrix@postgres:5432/incubrix
+      DATABASE_URL_ASYNC: postgresql+asyncpg://incubrix:incubrix@postgres:5432/incubrix
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: incubrix
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      STT_PROVIDER: mock
+      LLM_PROVIDER: mock
+      EMBEDDER_PROVIDER: mock
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - .:/app
+
+  worker:
+    build: .
+    command: python -m incubrix.jobs.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg2://incubrix:incubrix@postgres:5432/incubrix
+      DATABASE_URL_ASYNC: postgresql+asyncpg://incubrix:incubrix@postgres:5432/incubrix
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: incubrix
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      STT_PROVIDER: mock
+      LLM_PROVIDER: mock
+      EMBEDDER_PROVIDER: mock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    volumes:
+      - .:/app
+
+volumes:
+  pgdata:
+  miniodata:

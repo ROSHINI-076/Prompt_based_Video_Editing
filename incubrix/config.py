@@ -1,0 +1,81 @@
+"""Application configuration using pydantic-settings.
+
+All settings are read from environment variables. No hard-coded paths,
+keys, or model names. See .env.example for a complete list.
+"""
+
+from __future__ import annotations
+
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """Central configuration. Every value comes from an env var."""
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    # ── Server ──────────────────────────────────────────────────────
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+    DEBUG: bool = False
+    API_TOKEN: str = ""  # bearer-token for auth; empty = no auth
+    RATE_LIMIT_PER_MINUTE: int = 60
+
+    # ── Database ────────────────────────────────────────────────────
+    DATABASE_URL: str = "postgresql+psycopg2://incubrix:incubrix@postgres:5432/incubrix"
+    DATABASE_URL_ASYNC: str = "postgresql+asyncpg://incubrix:incubrix@postgres:5432/incubrix"
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
+
+    # ── S3 / MinIO ──────────────────────────────────────────────────
+    S3_ENDPOINT: str = "http://minio:9000"
+    S3_ACCESS_KEY: str = "minioadmin"
+    S3_SECRET_KEY: str = "minioadmin"
+    S3_BUCKET: str = "incubrix"
+    S3_REGION: str = "us-east-1"
+    S3_PRESIGNED_EXPIRY: int = 3600  # seconds
+
+    # ── Adapters ────────────────────────────────────────────────────
+    STT_PROVIDER: str = "mock"  # mock | faster_whisper
+    STT_MODEL: str = "base"  # whisper model size
+    LLM_PROVIDER: str = "mock"  # mock | groq | openai
+    LLM_MODEL: str = "llama-3.3-70b-versatile"
+    LLM_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    EMBEDDER_PROVIDER: str = "mock"  # mock | local
+    EMBEDDER_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+    # ── Engine limits ───────────────────────────────────────────────
+    MIN_SPEED: float = 0.25
+    MAX_SPEED: float = 4.0
+    MIN_CAPTION_S: float = 0.7
+    LOW_CONFIDENCE_THRESHOLD: float = 0.6
+
+    # ── Upload limits ───────────────────────────────────────────────
+    MAX_UPLOAD_SIZE_MB: int = 500
+    URL_FETCH_TIMEOUT_S: int = 120
+    URL_FETCH_MAX_SIZE_MB: int = 500
+
+    # ── Jobs / callbacks ────────────────────────────────────────────
+    WORKER_POLL_INTERVAL_S: float = 1.0
+    WORKER_CONCURRENCY: int = 2
+    HMAC_SECRET: str = "change-me-in-production"
+    CALLBACK_MAX_RETRIES: int = 3
+    CALLBACK_BACKOFF_S: float = 2.0
+
+    # ── Logging ─────────────────────────────────────────────────────
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "json"  # json | console
+
+    # ── Cost estimation (price per unit from env) ───────────────────
+    STT_COST_PER_MINUTE: float = 0.006
+    LLM_COST_PER_1K_TOKENS: float = 0.0008
+
+    # ── Misc ────────────────────────────────────────────────────────
+    TEST_MODE: bool = False  # enables file:// URL intake
+
+
+def get_settings() -> Settings:
+    """Return a cached Settings instance."""
+    return Settings()
