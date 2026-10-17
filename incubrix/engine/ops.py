@@ -234,7 +234,7 @@ def apply_speed(
     overlap_found = False
     for seg in segs:
         if seg.src_in_f >= sp_in and seg.src_out_f <= sp_out:
-            if seg.speed != factor:
+            if seg.speed not in (1.0, factor):
                 overlap_found = True
             result.append(Segment(src_in_f=seg.src_in_f, src_out_f=seg.src_out_f, speed=factor))
         else:

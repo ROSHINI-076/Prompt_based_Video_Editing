@@ -58,14 +58,64 @@ def _edit(edit_id: str, instruction: str, *ops) -> Edit:
 
 class TestApplySpeedCoverage:
     def test_no_overlap_no_warning(self):
-        """Speed change on a fresh segment with speed=1.0 → 2.0 does NOT emit overlap warning."""
+        """A first speed change on normal footage is not an overlap."""
         from incubrix.engine.models import Segment
         segs = [Segment(src_in_f=0, src_out_f=300, speed=1.0)]
         new_segs, warnings = apply_speed(segs, (0, 300), 2.0)
-        # No warning because previous speed was 1.0 ≠ 2.0 → overlap_found=True
-        # Actually the current logic triggers overlap_found when speed differs
-        # Let's verify the segments are correct
+        assert warnings == []
         assert new_segs[0].speed == 2.0
+
+    def test_overlapping_speed_replacement_warns_and_last_speed_wins(self):
+        from incubrix.engine.models import Segment
+
+        segments, warnings = apply_speed(
+            [Segment(src_in_f=0, src_out_f=300)], (30, 120), 2.0
+        )
+        segments, replacement_warnings = apply_speed(segments, (60, 150), 3.0)
+
+        assert len(warnings) == 0
+        assert len(replacement_warnings) == 1
+        assert "overlap" in replacement_warnings[0].lower()
+        assert [(seg.src_in_f, seg.src_out_f, seg.speed) for seg in segments] == [
+            (0, 30, 1.0),
+            (30, 60, 2.0),
+            (60, 120, 3.0),
+            (120, 150, 3.0),
+            (150, 300, 1.0),
+        ]
+
+    def test_reapplying_same_speed_does_not_warn(self):
+        from incubrix.engine.models import Segment
+
+        segments, warnings = apply_speed(
+            [Segment(src_in_f=0, src_out_f=300)], (30, 120), 2.0
+        )
+        segments, repeated_warnings = apply_speed(segments, (30, 120), 2.0)
+
+        assert warnings == []
+        assert repeated_warnings == []
+        assert [(seg.src_in_f, seg.src_out_f, seg.speed) for seg in segments] == [
+            (0, 30, 1.0),
+            (30, 120, 2.0),
+            (120, 300, 1.0),
+        ]
+
+    def test_speed_change_on_different_range_does_not_warn(self):
+        from incubrix.engine.models import Segment
+
+        segments, _ = apply_speed(
+            [Segment(src_in_f=0, src_out_f=300)], (30, 90), 2.0
+        )
+        segments, warnings = apply_speed(segments, (150, 210), 3.0)
+
+        assert warnings == []
+        assert [(seg.src_in_f, seg.src_out_f, seg.speed) for seg in segments] == [
+            (0, 30, 1.0),
+            (30, 90, 2.0),
+            (90, 150, 1.0),
+            (150, 210, 3.0),
+            (210, 300, 1.0),
+        ]
 
     def test_apply_music_returns_settings(self):
         from incubrix.engine.models import MusicSettings
