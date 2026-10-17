@@ -91,6 +91,17 @@ Caption times are computed at the output boundary, not stored on the overlay.
 the word anchors and current segments. This projection applies the 0.7-second
 minimum (capped at the timeline end), including after a speed change.
 
+## Instruction answers and clarification
+
+The engine answer layer resolves each structured operation against the current
+timeline, previews multi-part changes in order, and commits successful parts
+as one edit. It returns `applied`, `needs_clarification`, or `rejected`.
+Ambiguous targets are saved as a pending question without changing the
+timeline; a numbered answer or `all` choice resumes that instruction. Invalid
+parts in an otherwise valid instruction are reported as warnings. Undo and
+redo remain single-step history operations. Caption times in summaries come
+only from the canonical timeline output projection.
+
 ---
 
 ## The edit stack: the single source of truth

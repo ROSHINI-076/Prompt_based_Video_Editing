@@ -1,0 +1,945 @@
+"""Pure three-way instruction handling for the video-editing engine.
+
+Intent dictionaries are resolved against a scratch SessionManager first. A
+clarification or failed instruction therefore cannot partially mutate history;
+successful parts are committed together as one undoable Edit.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import math
+import re
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+from incubrix.engine.hashing import timeline_hash
+from incubrix.engine.models import (
+    AddCaptionOp,
+    AnyOp,
+    BleepOp,
+    CutOp,
+    Edit,
+    KeepOnlyOp,
+    MuteOp,
+    ReorderOp,
+    RestoreOp,
+    SpeedOp,
+    StyleOp,
+    Transcript,
+    Word,
+)
+from incubrix.engine.resolver import (
+    CaptionTarget,
+    PhraseTarget,
+    ReorderDestination,
+    Resolution,
+    Resolver,
+    RestoreTarget,
+    TimeTarget,
+    TopicTarget,
+)
+from incubrix.engine.session import SessionManager
+from incubrix.engine.timeline import is_word_alive, timeline_to_output
+
+MIN_SPEED = 0.25
+MAX_SPEED = 4.0
+LOW_CONFIDENCE_THRESHOLD = 0.6
+
+
+class _InputError(Exception):
+    def __init__(self, code: str, message: str, details: Any = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = details
+
+
+def _format_time(seconds: float) -> str:
+    total = max(0, round(seconds))
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def _format_duration(seconds: float) -> str:
+    total = max(0, round(seconds))
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def _duration_s(timeline: Any) -> float:
+    frames = sum(
+        max(1, round((segment.src_out_f - segment.src_in_f) / segment.speed))
+        for segment in timeline.segments
+    )
+    return frames / timeline.source.fps
+
+
+def _length_summary(before: Any, after: Any) -> str:
+    before_s = _duration_s(before)
+    after_s = _duration_s(after)
+    delta = after_s - before_s
+    sign = "-" if delta < 0 else "+"
+    return (
+        f"Video length {_format_duration(before_s)} -> {_format_duration(after_s)} "
+        f"({sign}{_format_duration(abs(delta))})"
+    )
+
+
+def _response(
+    session: SessionManager,
+    status: str,
+    *,
+    operations: list[dict] | None = None,
+    summary: str = "",
+    question: str | None = None,
+    options: list[dict] | None = None,
+    warnings: list[str] | None = None,
+    time_policy: str = "current",
+    edit_id: str | None = None,
+    error: dict | None = None,
+) -> dict:
+    timeline = session.get_timeline()
+    return {
+        "status": status,
+        "operations": operations or [],
+        "summary": summary,
+        "question": question,
+        "options": options,
+        "warnings": warnings or [],
+        "timeline_hash": timeline_hash(timeline),
+        "duration_s": round(
+            sum(max(1, round((segment.src_out_f - segment.src_in_f) / segment.speed))
+                for segment in timeline.segments) / timeline.source.fps,
+            3,
+        ),
+        "time_policy": time_policy,
+        "edit_id": edit_id,
+        "error": error,
+    }
+
+
+def _error_response(
+    session: SessionManager,
+    code: str,
+    message: str,
+    *,
+    details: Any = None,
+    warnings: list[str] | None = None,
+    summary: str | None = None,
+    time_policy: str = "current",
+) -> dict:
+    return _response(
+        session,
+        "rejected",
+        summary=summary or message,
+        warnings=warnings,
+        time_policy=time_policy,
+        error={"code": code, "message": message, "details": details},
+    )
+
+
+def _target_dict(value: Any) -> dict:
+    if isinstance(value, str):
+        return {"kind": "phrase", "text": value}
+    if not isinstance(value, Mapping):
+        raise _InputError("BAD_RANGE", "An operation target must be a structured object.")
+    result = dict(value)
+    if "kind" not in result:
+        if "start" in result or "end" in result or "from_start" in result or "from_end" in result:
+            result["kind"] = "time"
+        elif "text" in result:
+            result["kind"] = "phrase"
+    return result
+
+
+def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
+    target = _target_dict(target_value)
+    kind = target.get("kind")
+    choice = target.get("choice")
+    if kind == "time":
+        bounds = {
+            name: _as_float(target[name], name)
+            for name in ("start", "end", "from_start", "from_end")
+            if target.get(name) is not None
+        }
+        return resolver.resolve_time(TimeTarget(
+            start=bounds.get("start"),
+            end=bounds.get("end"),
+            from_start=bounds.get("from_start"),
+            from_end=bounds.get("from_end"),
+            policy=target.get("policy", "current"),
+        ))
+    if kind == "phrase":
+        relation = target.get("relation", "at")
+        if relation not in ("at", "before", "after"):
+            raise _InputError("BAD_RANGE", f"Unsupported phrase relation: {relation!r}.")
+        return resolver.resolve_phrase(PhraseTarget(
+            text=str(target.get("text", "")),
+            relation=relation,
+            speaker=target.get("speaker"),
+            choice=choice,
+        ))
+    if kind == "topic":
+        return resolver.resolve_topic(TopicTarget(
+            query=str(target.get("query", target.get("text", ""))),
+            speaker=target.get("speaker"),
+            choice=choice,
+        ))
+    if kind == "caption":
+        text = target.get("text")
+        if text is not None and not isinstance(text, str):
+            raise _InputError("BAD_RANGE", "Caption selection text must be a string.")
+        return resolver.resolve_caption(CaptionTarget(
+            text=text,
+            choice=choice,
+        ))
+    if kind in ("edit", "overlap", "any"):
+        overlap = None
+        if kind == "overlap":
+            start = target.get("start")
+            end = target.get("end")
+            if start is None or end is None:
+                raise _InputError("BAD_RANGE", "Restore overlap requires start and end times.")
+            overlap = (_as_float(start, "Overlap start"), _as_float(end, "Overlap end"))
+        return resolver.resolve_restore(RestoreTarget(
+            edit_id=target.get("edit_id") if kind == "edit" else None,
+            overlap=overlap,
+            any=kind == "any",
+            choice=choice,
+        ))
+    raise _InputError("BAD_RANGE", f"Unsupported target kind: {kind!r}.")
+
+
+def _destination_resolution(value: Any, resolver: Resolver) -> Resolution:
+    if isinstance(value, str):
+        if value in ("start", "end"):
+            return resolver.resolve_reorder_destination(ReorderDestination(kind=value))
+        value = {"kind": "phrase", "phrase": value}
+    if not isinstance(value, Mapping):
+        raise _InputError("BAD_RANGE", "A reorder destination must be structured.")
+    kind = value.get("kind")
+    if kind == "phrase":
+        phrase = value.get("phrase", value.get("text"))
+        if not isinstance(phrase, str) or not phrase.strip():
+            raise _InputError("BAD_RANGE", "A reorder phrase destination must contain text.")
+        return resolver.resolve_reorder_destination(ReorderDestination(
+            kind="phrase",
+            phrase=phrase,
+            speaker=value.get("speaker"),
+            choice=value.get("choice"),
+        ))
+    if kind == "time":
+        time_s = value.get("time_s", value.get("time"))
+        return resolver.resolve_reorder_destination(ReorderDestination(
+            kind="time",
+            time_s=None if time_s is None else _as_float(time_s, "Destination time"),
+        ))
+    if kind in ("start", "end"):
+        return resolver.resolve_reorder_destination(ReorderDestination(kind=kind))
+    raise _InputError("BAD_RANGE", "Reorder destination must be start, end, time, or phrase.")
+
+
+def _active_target_path(op: Mapping, resolver: Resolver) -> tuple[Resolution, str]:
+    if op.get("op") == "reorder":
+        source = _target_resolution(op.get("target"), resolver)
+        if source.status != "RESOLVED":
+            return source, "target"
+        destination = _destination_resolution(
+            op.get("before", op.get("destination")), resolver
+        )
+        return destination, "before"
+    return _target_resolution(op.get("target"), resolver), "target"
+
+
+def _words_for_ranges(
+    ranges: Sequence[tuple[int, int]],
+    transcript: Transcript,
+    resolver: Resolver,
+) -> list[str]:
+    selected: list[str] = []
+    for word in transcript.words:
+        midpoint = round(((word.start_s + word.end_s) / 2) * resolver.fps)
+        if any(start <= midpoint < end for start, end in ranges) and is_word_alive(
+            word, resolver.timeline.segments, resolver.fps
+        ):
+            selected.append(word.id)
+    return selected
+
+
+def _word_groups(word_ids: Sequence[str], transcript: Transcript) -> list[list[Word]]:
+    by_id = {word.id: (index, word) for index, word in enumerate(transcript.words)}
+    indexed = sorted(
+        (by_id[word_id] for word_id in dict.fromkeys(word_ids) if word_id in by_id),
+        key=lambda item: item[0],
+    )
+    groups: list[list[Word]] = []
+    previous_index = -2
+    for index, word in indexed:
+        if index != previous_index + 1:
+            groups.append([])
+        groups[-1].append(word)
+        previous_index = index
+    return groups
+
+
+def _as_float(value: Any, label: str) -> float:
+    if isinstance(value, bool):
+        raise _InputError("BAD_RANGE", f"{label} must be numeric.")
+    try:
+        number = float(value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise _InputError("BAD_RANGE", f"{label} must be numeric.") from exc
+    if not math.isfinite(number):
+        raise _InputError("BAD_RANGE", f"{label} must be finite.")
+    return number
+
+
+def _resolve_part(
+    op: Mapping,
+    resolver: Resolver,
+    edit_id: str,
+    part_index: int,
+) -> tuple[list[AnyOp], Resolution | None, str, str | None]:
+    name = str(op.get("op", ""))
+    resolved, ambiguous_path = _active_target_path(op, resolver)
+    if resolved.status != "RESOLVED":
+        return [], resolved, ambiguous_path, name
+
+    if name == "cut":
+        if not resolved.source_ranges:
+            raise _InputError("NO_MATCH", "The cut target has no source range.")
+        return [CutOp(ranges=resolved.source_ranges)], None, "", name
+    if name == "keep_only":
+        if len(resolved.source_ranges) != 1:
+            raise _InputError("BAD_RANGE", "Keep-only must resolve to exactly one continuous range.")
+        return [KeepOnlyOp(range=resolved.source_ranges[0])], None, "", name
+    if name == "speed":
+        factor = _as_float(op.get("factor"), "Speed factor")
+        if not MIN_SPEED <= factor <= MAX_SPEED:
+            raise _InputError(
+                "INVALID_SPEED",
+                f"Speed {factor:g}x is outside the allowed range {MIN_SPEED:g}x-{MAX_SPEED:g}x.",
+                {"minimum": MIN_SPEED, "maximum": MAX_SPEED, "requested": factor},
+            )
+        if not resolved.source_ranges:
+            raise _InputError("NO_MATCH", "The speed target has no surviving source range.")
+        return [
+            SpeedOp(range=source_range, factor=factor)
+            for source_range in resolved.source_ranges
+        ], None, "", name
+    if name == "reorder":
+        source_result = _target_resolution(op.get("target"), resolver)
+        assert source_result.status == "RESOLVED"
+        if len(source_result.source_ranges) != 1:
+            raise _InputError("BAD_RANGE", "Reorder must resolve to one continuous source range.")
+        destination = resolved.destination_frame
+        assert destination is not None
+        return [ReorderOp(range=source_result.source_ranges[0], before=destination)], None, "", name
+    if name == "add_caption":
+        text = op.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise _InputError("BAD_RANGE", "A caption requires non-empty text.")
+        word_ids = resolved.word_ids or _words_for_ranges(
+            resolved.source_ranges, resolver.transcript, resolver
+        )
+        groups = _word_groups(word_ids, resolver.transcript)
+        if not groups:
+            raise _InputError("NO_MATCH", "No alive words anchor the requested caption.")
+        caption_ops = []
+        for group_index, group in enumerate(groups):
+            overlay_id = f"{edit_id}_ov{part_index + 1}_{group_index + 1}"
+            caption_ops.append(AddCaptionOp(
+                overlay_id=overlay_id,
+                text=text,
+                start_word_id=group[0].id,
+                end_word_id=group[-1].id,
+                style=dict(op.get("style") or {}),
+            ))
+        return caption_ops, None, "", name
+    if name == "style":
+        style = op.get("style")
+        if not isinstance(style, Mapping) or not style:
+            raise _InputError("BAD_RANGE", "A style operation requires a non-empty style object.")
+        assert resolved.overlay_ids
+        return [
+            StyleOp(overlay_id=overlay_id, style=dict(style))
+            for overlay_id in resolved.overlay_ids
+        ], None, "", name
+    if name in ("mute", "bleep"):
+        word_ids = resolved.word_ids or _words_for_ranges(
+            resolved.source_ranges, resolver.transcript, resolver
+        )
+        groups = _word_groups(word_ids, resolver.transcript)
+        if not groups:
+            raise _InputError("NO_MATCH", f"No alive words match the {name} target.")
+        effects: list[AnyOp] = []
+        for group_index, group in enumerate(groups):
+            effect_id = f"{edit_id}_fx{part_index + 1}_{group_index + 1}"
+            cls = MuteOp if name == "mute" else BleepOp
+            effects.append(cls(
+                effect_id=effect_id,
+                start_word_id=group[0].id,
+                end_word_id=group[-1].id,
+            ))
+        return effects, None, "", name
+    if name == "restore":
+        assert resolved.edit_ids
+        return [
+            RestoreOp(target_edit_id=target_edit_id)
+            for target_edit_id in resolved.edit_ids
+        ], None, "", name
+    raise _InputError("BAD_RANGE", f"Unsupported instruction operation: {name!r}.")
+
+
+def _resolution_error(resolution: Resolution, operation: str) -> tuple[str, str, Any]:
+    code = resolution.error_code or resolution.status
+    if operation == "style" and code == "NO_MATCH":
+        code = "NO_TARGET"
+    message = resolution.detail or f"The {operation} target could not be resolved."
+    return code, message, {"note": resolution.note}
+
+
+def _conflicting_cut(intent: Mapping, resolver: Resolver) -> tuple[str, str] | None:
+    """Name the earlier active cut that explains a target found only in removed content."""
+    target = intent.get("target")
+    if not isinstance(target, Mapping):
+        return None
+    source_ranges: list[tuple[int, int]] = []
+    if target.get("kind") == "time" and target.get("policy", "current") == "original":
+        fps = resolver.fps
+        duration = resolver.timeline.source.duration_frames
+        if target.get("from_start") is not None:
+            source_ranges = [(0, min(duration, round(float(target["from_start"]) * fps)))]
+        elif target.get("from_end") is not None:
+            start = max(0, duration - round(float(target["from_end"]) * fps))
+            source_ranges = [(start, duration)]
+        elif target.get("start") is not None and target.get("end") is not None:
+            source_ranges = [(
+                max(0, round(float(target["start"]) * fps)),
+                min(duration, round(float(target["end"]) * fps)),
+            )]
+    elif target.get("kind") == "phrase":
+        matches = resolver._phrase_matches_all_words(
+            str(target.get("text", "")), target.get("speaker")
+        )
+        source_ranges = [resolver._snapped_match_range(match) for match in matches]
+    if not source_ranges:
+        return None
+
+    active = resolver._active_edit_ids()
+    for edit in resolver.edits:
+        if edit.id not in active:
+            continue
+        for cut_start, cut_end in resolver._cut_ranges_for_edit(edit):
+            if any(start < cut_end and end > cut_start for start, end in source_ranges):
+                return edit.id, edit.instruction
+    return None
+
+
+def _option_dict(option: Any) -> dict:
+    return {
+        "choice": option.choice,
+        "start_s": option.current_start_s,
+        "end_s": option.current_end_s,
+        "snippet": option.snippet,
+        "edit_id": option.edit_id,
+        "overlay_id": option.overlay_id,
+    }
+
+
+def _clarification_question(op: Mapping, resolution: Resolution) -> str:
+    target = op.get("target")
+    target_data = dict(target) if isinstance(target, Mapping) else {}
+    query = target_data.get("text", target_data.get("query"))
+    matches = [option for option in resolution.options if option.choice != "all"]
+    positions = [
+        _format_time(option.current_start_s)
+        for option in matches
+        if option.current_start_s is not None
+    ]
+    if query and positions:
+        if len(positions) == 2:
+            location = f"{positions[0]} and {positions[1]}"
+        else:
+            location = ", ".join(positions[:-1]) + f" and {positions[-1]}"
+        return (
+            f"'{query}' is mentioned {len(matches)} times at {location}. "
+            "Which one, or all?"
+        )
+    if matches:
+        labels = [
+            f"{option.edit_id}: {option.snippet}"
+            if option.edit_id else option.snippet
+            for option in matches
+        ]
+        return f"Which match do you mean ({'; '.join(labels)}), or all?"
+    assert resolution.detail is not None
+    return resolution.detail
+
+
+def _format_operation(op: AnyOp, fps: float) -> dict:
+    def range_seconds(value: tuple[int, int]) -> dict:
+        return {"start_s": round(value[0] / fps, 3), "end_s": round(value[1] / fps, 3)}
+
+    if isinstance(op, CutOp):
+        return {"op": "cut", "ranges": [range_seconds(item) for item in op.ranges]}
+    if isinstance(op, KeepOnlyOp):
+        return {"op": "keep_only", "range": range_seconds(op.range)}
+    if isinstance(op, SpeedOp):
+        return {"op": "speed", "range": range_seconds(op.range), "factor": op.factor}
+    if isinstance(op, ReorderOp):
+        return {
+            "op": "reorder",
+            "range": range_seconds(op.range),
+            "before_s": round(op.before / fps, 3),
+        }
+    if isinstance(op, AddCaptionOp):
+        return {
+            "op": "add_caption",
+            "text": op.text,
+            "start_word_id": op.start_word_id,
+            "end_word_id": op.end_word_id,
+        }
+    if isinstance(op, StyleOp):
+        return {"op": "style", "overlay_id": op.overlay_id, "style": dict(op.style)}
+    if isinstance(op, (MuteOp, BleepOp)):
+        return {
+            "op": op.op,
+            "effect_id": op.effect_id,
+            "start_word_id": op.start_word_id,
+            "end_word_id": op.end_word_id,
+        }
+    if isinstance(op, RestoreOp):
+        return {"op": "restore", "target_edit_id": op.target_edit_id}
+    raise TypeError(f"Unsupported resolved operation type: {type(op).__name__}")
+
+
+def _output_spans(timeline: Any, transcript: Transcript) -> dict[str, tuple[str, int | None, int | None]]:
+    projection = timeline_to_output(timeline, transcript)
+    return {
+        display["overlay_id"]: (
+            display["text"],
+            display["start_out_f"],
+            display["end_out_f"],
+        )
+        for display in projection["overlay_displays"]
+    }
+
+
+def _new_timeline_warnings(before: Sequence[str], after: Sequence[str]) -> list[str]:
+    remaining = Counter(before)
+    result = []
+    for warning in after:
+        if remaining[warning]:
+            remaining[warning] -= 1
+        else:
+            result.append(warning)
+    return result
+
+
+def _response_timeline_warnings(before: Sequence[str], after: Sequence[str]) -> tuple[list[str], list[str]]:
+    display_warnings: list[str] = []
+    summary_warnings: list[str] = []
+    for warning in _new_timeline_warnings(before, after):
+        if warning.startswith("Speed overlap:"):
+            summary_warnings.append(warning)
+            continue
+        if "It will revive if the cut is restored." in warning:
+            warning = warning.replace(
+                "It will revive if the cut is restored.",
+                "restore the cut to bring it back.",
+            )
+        display_warnings.append(warning)
+    return display_warnings, summary_warnings
+
+
+def _caption_summary(before: Any, after: Any, transcript: Transcript) -> list[str]:
+    before_spans = _output_spans(before, transcript)
+    after_spans = _output_spans(after, transcript)
+    fps = after.source.fps
+    lines = []
+    for overlay_id, (text, start, end) in after_spans.items():
+        old = before_spans.get(overlay_id)
+        if start is None or end is None:
+            continue
+        if old is not None and old[1:] == (start, end):
+            continue
+        start_s = _format_time(start / fps)
+        end_s = _format_time(end / fps)
+        lines.append(f"Caption '{text}' now plays at {start_s}-{end_s}, still on the same words")
+    return lines
+
+
+def _preview_session(session: SessionManager) -> SessionManager:
+    preview = SessionManager(session.state.source, session.state.transcript)
+    preview.state.stack = copy.deepcopy(session.state.stack)
+    preview.state.redo = copy.deepcopy(session.state.redo)
+    preview.state.edit_counter = session.state.edit_counter
+    preview.state.pending_question = copy.deepcopy(session.state.pending_question)
+    return preview
+
+
+def _time_policy(ops: Sequence[Mapping]) -> str:
+    for op in ops:
+        target = op.get("target")
+        if isinstance(target, Mapping):
+            if target.get("policy") == "original" or target.get("kind") == "overlap":
+                return "original"
+    return "current"
+
+
+def _answer_choice(answer_text: str) -> int | str | None:
+    normalized = answer_text.strip().casefold()
+    normalized = re.sub(r"^(?:the|number)\s+", "", normalized)
+    if normalized in ("all", "both", "all of them", "every one"):
+        return "all"
+    normalized = re.sub(r"\s+one$", "", normalized)
+    ordinals = {
+        "first": 1, "1st": 1, "one": 1,
+        "second": 2, "2nd": 2, "two": 2,
+        "third": 3, "3rd": 3, "three": 3,
+        "fourth": 4, "4th": 4, "four": 4,
+        "fifth": 5, "5th": 5, "five": 5,
+        "last": -1, "final": -1,
+    }
+    if normalized in ordinals:
+        return "last" if ordinals[normalized] == -1 else ordinals[normalized]
+    match = re.fullmatch(r"(\d+)(?:st|nd|rd|th)?(?:\s+one)?", normalized)
+    return int(match.group(1)) if match else None
+
+
+def _inject_choice(ops: list[dict], op_index: int, path: str, choice: int | str) -> None:
+    selected_op = ops[op_index]
+    if path == "before":
+        key = "before" if "before" in selected_op else "destination"
+        target = dict(selected_op.get(key) or {})
+        target["choice"] = choice
+        selected_op[key] = target
+    else:
+        target = _target_dict(selected_op.get("target"))
+        target["choice"] = choice
+        selected_op["target"] = target
+
+
+def _handle_history_operation(session: SessionManager, name: str) -> dict:
+    before = session.get_timeline()
+    before_warnings = list(before.warnings)
+    if name == "undo":
+        edit = session.undo()
+        if edit is None:
+            return _error_response(session, "NOTHING_TO_UNDO", "There is nothing to undo.")
+    else:
+        edit = session.redo_edit()
+        if edit is None:
+            return _error_response(session, "NOTHING_TO_REDO", "There is nothing to redo.")
+    after = session.get_timeline()
+    warnings, summary_warnings = _response_timeline_warnings(
+        before_warnings, after.warnings
+    )
+    summary_parts = [
+        _length_summary(before, after),
+        f"{'Undid' if name == 'undo' else 'Redid'} edit {edit.id}: {edit.instruction}",
+    ]
+    summary_parts.extend(_caption_summary(before, after, session.state.transcript))
+    summary_parts.extend(summary_warnings)
+    return _response(
+        session,
+        "applied",
+        operations=[{"op": name}],
+        summary=". ".join(summary_parts) + ".",
+        warnings=warnings,
+        edit_id=edit.id,
+    )
+
+
+def handle_instruction(
+    session: SessionManager,
+    intent_ops: Sequence[Mapping[str, Any]],
+    *,
+    instruction: str = "",
+) -> dict:
+    """Resolve and apply one structured instruction as exactly one Edit.
+
+    Any ambiguity is saved in SessionState.pending_question and leaves the
+    timeline unchanged. Invalid parts are reported while other valid parts
+    commit together as a single undo step.
+    """
+    session.state.pending_question = None
+    if not intent_ops:
+        return _error_response(session, "BAD_RANGE", "An instruction must contain at least one operation.")
+    if any(not isinstance(op, Mapping) for op in intent_ops):
+        return _error_response(session, "BAD_RANGE", "Every intent operation must be an object.")
+    copied_ops = [dict(op) for op in intent_ops]
+    if len(copied_ops) == 1 and copied_ops[0].get("op") in ("undo", "redo"):
+        return _handle_history_operation(session, copied_ops[0]["op"])
+    if any(op.get("op") in ("undo", "redo") for op in copied_ops):
+        return _error_response(
+            session, "BAD_RANGE", "Undo and redo must be the only operation in an instruction."
+        )
+
+    instruction_text = instruction.strip()
+    if not instruction_text:
+        instruction_text = json.dumps(copied_ops, sort_keys=True, separators=(",", ":"))
+    if (
+        session.state.stack
+        and session.state.stack[-1].instruction.casefold() == instruction_text.casefold()
+    ):
+        return _error_response(
+            session, "NO_CHANGE", "The same instruction was already applied; no change was made."
+        )
+
+    baseline_timeline = session.get_timeline()
+    baseline_warnings = list(baseline_timeline.warnings)
+    preview = _preview_session(session)
+    edit_id = f"e{session.edit_counter + 1}"
+    resolved_ops: list[AnyOp] = []
+    resolution_notes: list[str] = []
+    warnings: list[str] = []
+    first_error: tuple[str, str, Any] | None = None
+    resolver: Resolver
+
+    for part_index, intent in enumerate(copied_ops):
+        resolver_edits = preview.state.stack
+        if resolver_edits and resolver_edits[-1].id == edit_id:
+            resolver_edits = resolver_edits[:-1]
+        resolver = Resolver(
+            preview.get_timeline(),
+            preview.state.transcript,
+            resolver_edits,
+        )
+        try:
+            part_ops, unresolved, ambiguous_path, operation_name = _resolve_part(
+                intent, resolver, edit_id, part_index
+            )
+        except _InputError as exc:
+            try:
+                resolution_notes.append(resolver_note(intent, resolver))
+            except _InputError:
+                pass
+            operation_name = intent.get("op", "operation")
+            code = exc.code
+            if operation_name == "style" and intent.get("target") is None:
+                code = "NO_TARGET"
+            message = f"{operation_name}: {exc}"
+            warnings.append(f"{message} [{code}]")
+            if first_error is None:
+                first_error = (code, str(exc), exc.details)
+            continue
+
+        if unresolved is not None:
+            resolution_notes.append(unresolved.note)
+            if unresolved.status == "AMBIGUOUS":
+                question = _clarification_question(intent, unresolved)
+                options = [_option_dict(option) for option in unresolved.options]
+                session.state.pending_question = {
+                    "intent_ops": copy.deepcopy(copied_ops),
+                    "instruction": instruction_text,
+                    "op_index": part_index,
+                    "target_path": ambiguous_path,
+                }
+                return _response(
+                    session,
+                    "needs_clarification",
+                    question=question,
+                    options=options,
+                    warnings=warnings,
+                    summary=(
+                        "No changes were applied; clarification is required. "
+                        + unresolved.note
+                    ),
+                    time_policy=_time_policy(copied_ops),
+                )
+            code, message, details = _resolution_error(unresolved, operation_name)
+            conflict = _conflicting_cut(intent, resolver)
+            if conflict is not None:
+                message = (
+                    f"{message} It conflicts with earlier edit {conflict[0]} "
+                    f"('{conflict[1]}'), which removed this content."
+                )
+                code = "EDIT_CONFLICT"
+                details = {**details, "conflicting_edit_id": conflict[0],
+                           "conflicting_instruction": conflict[1]}
+            part_message = f"{operation_name}: {message}"
+            warnings.append(f"{part_message} [{code}]")
+            if first_error is None:
+                first_error = (code, message, details)
+            continue
+        resolution_notes.append(resolver_note(intent, resolver))
+
+        assert part_ops
+        previous_hash = preview.get_timeline_hash()
+        candidate_ops = resolved_ops + part_ops
+        candidate_edit = Edit(id=edit_id, instruction=instruction_text, ops=candidate_ops)
+        preview.state.stack = copy.deepcopy(session.state.stack) + [candidate_edit]
+        preview.state.edit_counter = session.edit_counter + 1
+        preview.state.redo = []
+        candidate_hash = preview.get_timeline_hash()
+        if not preview.get_timeline().segments:
+            warnings.append(f"{operation_name}: CUT_ALL — the video must retain at least one frame.")
+            if first_error is None:
+                first_error = (
+                    "CUT_ALL",
+                    "The operation would remove the entire video.",
+                    {"operation": operation_name},
+                )
+            preview = _preview_session(session)
+            if resolved_ops:
+                preview.state.stack.append(
+                    Edit(id=edit_id, instruction=instruction_text, ops=copy.deepcopy(resolved_ops))
+                )
+                preview.state.edit_counter = session.edit_counter + 1
+            continue
+        if candidate_hash == previous_hash:
+            conflict = _conflicting_cut(intent, resolver)
+            code = "EDIT_CONFLICT" if conflict is not None else "NO_CHANGE"
+            message = "This part leaves the timeline unchanged."
+            details = None
+            if conflict is not None:
+                message = (
+                    f"This part conflicts with earlier edit {conflict[0]} "
+                    f"('{conflict[1]}'), which already removed the target."
+                )
+                details = {
+                    "conflicting_edit_id": conflict[0],
+                    "conflicting_instruction": conflict[1],
+                }
+            warnings.append(f"{operation_name}: {code} — {message}")
+            if first_error is None:
+                first_error = (code, message, details)
+            preview = _preview_session(session)
+            if resolved_ops:
+                preview.state.stack.append(
+                    Edit(id=edit_id, instruction=instruction_text, ops=copy.deepcopy(resolved_ops))
+                )
+                preview.state.edit_counter = session.edit_counter + 1
+            continue
+        resolved_ops = candidate_ops
+
+    if not resolved_ops:
+        assert first_error is not None
+        code, message, details = first_error
+        return _error_response(
+            session,
+            code,
+            message,
+            details=details,
+            warnings=warnings,
+            summary=". ".join(
+                [message, *dict.fromkeys(resolution_notes)]
+            ),
+            time_policy=_time_policy(copied_ops),
+        )
+
+    committed = session.push_edit(instruction_text, resolved_ops)
+    final_timeline = session.get_timeline()
+
+    operation_names = ", ".join(dict.fromkeys(str(op.get("op", "operation")) for op in copied_ops))
+    summary_parts = [_length_summary(baseline_timeline, final_timeline), f"Applied {operation_names}."]
+    summary_parts.extend(_caption_summary(
+        baseline_timeline, final_timeline, session.state.transcript
+    ))
+    new_timeline_warnings = _new_timeline_warnings(
+        baseline_warnings, final_timeline.warnings
+    )
+    overlap_notes = [
+        warning for warning in new_timeline_warnings
+        if warning.startswith("Speed overlap:")
+    ]
+    summary_parts.extend(overlap_notes)
+    summary_parts.extend(dict.fromkeys(resolution_notes))
+    timeline_warnings, overlap_warning_summaries = _response_timeline_warnings(
+        baseline_warnings, final_timeline.warnings
+    )
+    warnings.extend(timeline_warnings)
+    summary_parts.extend(
+        warning for warning in overlap_warning_summaries
+        if warning not in overlap_notes
+    )
+    for op in resolved_ops:
+        if isinstance(op, (MuteOp, BleepOp)):
+            for word in session.state.transcript.words:
+                if (
+                    word.confidence < LOW_CONFIDENCE_THRESHOLD
+                    and _id_in_word_interval(
+                        word.id, op.start_word_id, op.end_word_id, session.state.transcript
+                    )
+                ):
+                    warnings.append(
+                        f"Low confidence ({word.confidence:.2f}) on {op.op} word "
+                        f"'{word.text}' ({word.id}); review before relying on this effect."
+                    )
+    return _response(
+        session,
+        "applied",
+        operations=[_format_operation(op, final_timeline.source.fps) for op in resolved_ops],
+        summary=". ".join(part.rstrip(".") for part in summary_parts) + ".",
+        warnings=list(dict.fromkeys(warnings)),
+        time_policy=_time_policy(copied_ops),
+        edit_id=committed.id,
+    )
+
+
+def _id_in_word_interval(word_id: str, start_id: str, end_id: str, transcript: Transcript) -> bool:
+    ids = [word.id for word in transcript.words]
+    index = ids.index(word_id)
+    start = ids.index(start_id)
+    end = ids.index(end_id)
+    return min(start, end) <= index <= max(start, end)
+
+
+def resolver_note(intent: Mapping, resolver: Resolver) -> str:
+    """Re-resolve a successful target to retain the resolver's policy note."""
+    source_note = _target_resolution(intent.get("target"), resolver).note
+    if intent.get("op") != "reorder":
+        return source_note
+    destination = _destination_resolution(
+        intent.get("before", intent.get("destination")), resolver
+    )
+    return f"{source_note} {destination.note}"
+
+
+def answer(session: SessionManager, answer_text: str) -> dict:
+    """Apply the stored pending instruction after parsing an explicit choice."""
+    pending = session.state.pending_question
+    if pending is None:
+        return _error_response(session, "NO_MATCH", "There is no pending question to answer.")
+    choice = _answer_choice(answer_text)
+    if choice is None:
+        saved_ops = pending["intent_ops"]
+        index = pending["op_index"]
+        intent = saved_ops[index]
+        target_value = intent.get("before", intent.get("destination")) if pending["target_path"] == "before" else intent.get("target")
+        resolver = Resolver(session.get_timeline(), session.state.transcript, session.state.stack)
+        if intent.get("op") == "reorder" and pending["target_path"] == "before":
+            resolution = _destination_resolution(target_value, resolver)
+        else:
+            resolution = _target_resolution(target_value, resolver)
+        return _response(
+            session,
+            "needs_clarification",
+            question=_clarification_question(intent, resolution),
+            options=[_option_dict(option) for option in resolution.options],
+            summary="That answer did not identify an option. Please choose one of the listed options.",
+            time_policy=_time_policy(saved_ops),
+        )
+    saved_ops = copy.deepcopy(pending["intent_ops"])
+    _inject_choice(saved_ops, pending["op_index"], pending["target_path"], choice)
+    session.state.pending_question = None
+    return handle_instruction(
+        session,
+        saved_ops,
+        instruction=pending["instruction"],
+    )
+
+
+class InstructionHandler:
+    """Convenience wrapper that binds structured instruction handling to a session."""
+
+    def __init__(self, session: SessionManager) -> None:
+        self.session = session
+
+    def handle(self, intent_ops: Sequence[Mapping[str, Any]], instruction: str = "") -> dict:
+        return handle_instruction(self.session, intent_ops, instruction=instruction)
+
+    def answer(self, answer_text: str) -> dict:
+        return answer(self.session, answer_text)
