@@ -138,9 +138,9 @@ class TestCaptionOutSpan:
         span = layout.caption_out_span(w_start, w_end, FPS)
         assert span is not None
         start, end = span
-        assert end - start >= min_caption_frames(FPS), (
-            f"Caption duration {end - start} frames < minimum {min_caption_frames(FPS)}"
-        )
+        assert end - start >= min_caption_frames(
+            FPS
+        ), f"Caption duration {end - start} frames < minimum {min_caption_frames(FPS)}"
 
     def test_4x_speed_caption_still_meets_minimum(self):
         """(a) Caption on words sped up 4x still lasts >= 0.7 s."""
@@ -149,9 +149,9 @@ class TestCaptionOutSpan:
         assert span is not None
         start, end = span
         duration_s = (end - start) / FPS
-        assert duration_s >= MIN_CAPTION_S, (
-            f"Caption at 4x speed only lasted {duration_s:.3f}s, need >= {MIN_CAPTION_S}s"
-        )
+        assert (
+            duration_s >= MIN_CAPTION_S
+        ), f"Caption at 4x speed only lasted {duration_s:.3f}s, need >= {MIN_CAPTION_S}s"
 
     def test_normal_speed_long_caption_unchanged(self):
         """(b) Caption at normal speed lasting 2+ seconds is not lengthened."""
@@ -344,9 +344,9 @@ class TestTimelineLengthInvariant:
         tl = replay(src, edits, transcript)
         computed_total = total_duration_frames(tl.segments)
         segment_sum = sum(segment_output_length(s) for s in tl.segments)
-        assert computed_total == segment_sum, (
-            f"total_duration_frames={computed_total} != segment_sum={segment_sum}"
-        )
+        assert (
+            computed_total == segment_sum
+        ), f"total_duration_frames={computed_total} != segment_sum={segment_sum}"
         return computed_total
 
     def test_cut_only(self):
