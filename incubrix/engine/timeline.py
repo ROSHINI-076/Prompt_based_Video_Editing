@@ -231,15 +231,25 @@ class Layout:
     def word_out_span(self, word: Word, fps: float) -> tuple[int, int] | None:
         """Get the output frame span (start, end) of a word.
 
-        Returns None if the word is not alive (was cut).
+        Returns the surviving intersection when a cut clips a word but leaves
+        its midpoint alive, or None if the midpoint was cut.
         """
         start_f = round(word.start_s * fps)
         end_f = round(word.end_s * fps)
-        out_start = self.src_to_out(start_f)
-        out_end = self.src_to_out(end_f)
-        if out_start is None or out_end is None:
-            return None
-        return (out_start, out_end)
+        midpoint_f = word_midpoint_frame(word, fps)
+        for i, seg in enumerate(self._segments):
+            if seg.src_in_f <= midpoint_f < seg.src_out_f:
+                visible_start_f = max(start_f, seg.src_in_f)
+                visible_end_f = min(end_f, seg.src_out_f)
+                out_start = self._out_starts[i] + round(
+                    (visible_start_f - seg.src_in_f) / seg.speed
+                )
+                out_end = self._out_starts[i] + round(
+                    (visible_end_f - seg.src_in_f) / seg.speed
+                )
+                out_end = min(out_end, self._out_starts[i] + segment_output_length(seg))
+                return (out_start, max(out_start, out_end))
+        return None
 
     def caption_out_span(
         self,
@@ -338,11 +348,28 @@ def compute_overlay_displays(
     fps = timeline.source.fps
     layout = Layout(timeline.segments)
 
-    # Build O(1) word lookup
+    # Build O(1) word lookups
     word_by_id: dict[str, Word] = {w.id: w for w in transcript.words}
+    word_index_by_id = {w.id: i for i, w in enumerate(transcript.words)}
 
     result: list[OverlayDisplay] = []
     for ov in timeline.overlays:
+        start_word = word_by_id.get(ov.anchor.start_word_id)
+        end_word = word_by_id.get(ov.anchor.end_word_id)
+        if start_word is None or end_word is None:
+            missing_ids = [
+                word_id
+                for word_id, word in (
+                    (ov.anchor.start_word_id, start_word),
+                    (ov.anchor.end_word_id, end_word),
+                )
+                if word is None
+            ]
+            raise ValueError(
+                f"Overlay {ov.id!r} references transcript word ID(s) not found: "
+                f"{', '.join(missing_ids)}"
+            )
+
         # Dormant overlays never have display times
         if ov.status == OverlayStatus.DORMANT:
             result.append(OverlayDisplay(
@@ -357,48 +384,26 @@ def compute_overlay_displays(
             ))
             continue
 
-        start_word = word_by_id.get(ov.anchor.start_word_id)
-        end_word = word_by_id.get(ov.anchor.end_word_id)
-
-        if start_word is None or end_word is None:
-            # Anchor words not found in transcript — treat as dormant
-            result.append(OverlayDisplay(
-                overlay_id=ov.id,
-                text=ov.text,
-                style=dict(ov.style),
-                status=ov.status,
-                start_out_f=None,
-                end_out_f=None,
-                start_s=None,
-                end_s=None,
-            ))
-            continue
-
-        span = layout.caption_out_span(start_word, end_word, fps, min_s)
-        if span is None:
-            # Both anchor words cut (status mismatch — guard defensively)
-            result.append(OverlayDisplay(
-                overlay_id=ov.id,
-                text=ov.text,
-                style=dict(ov.style),
-                status=ov.status,
-                start_out_f=None,
-                end_out_f=None,
-                start_s=None,
-                end_s=None,
-            ))
-        else:
-            start_out_f, end_out_f = span
-            result.append(OverlayDisplay(
-                overlay_id=ov.id,
-                text=ov.text,
-                style=dict(ov.style),
-                status=ov.status,
-                start_out_f=start_out_f,
-                end_out_f=end_out_f,
-                start_s=round(start_out_f / fps, 3),
-                end_s=round(end_out_f / fps, 3),
-            ))
+        start_idx = word_index_by_id[start_word.id]
+        end_idx = word_index_by_id[end_word.id]
+        anchor_words = transcript.words[min(start_idx, end_idx) : max(start_idx, end_idx) + 1]
+        alive_words = [
+            word for word in anchor_words
+            if is_word_alive(word, timeline.segments, fps)
+        ]
+        # ACTIVE/PARTIAL overlays have at least one surviving word in their anchor range.
+        span = layout.caption_out_span(alive_words[0], alive_words[-1], fps, min_s)
+        start_out_f, end_out_f = span
+        result.append(OverlayDisplay(
+            overlay_id=ov.id,
+            text=ov.text,
+            style=dict(ov.style),
+            status=ov.status,
+            start_out_f=start_out_f,
+            end_out_f=end_out_f,
+            start_s=round(start_out_f / fps, 3),
+            end_s=round(end_out_f / fps, 3),
+        ))
 
     return result
 

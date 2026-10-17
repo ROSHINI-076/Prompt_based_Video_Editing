@@ -36,6 +36,7 @@ from incubrix.engine.timeline import (
     caption_display_span,
     min_caption_frames,
     total_duration_frames,
+    timeline_to_output,
 )
 from incubrix.engine.ops import (
     apply_cut,
@@ -213,6 +214,108 @@ class TestMinCaptionDeterminism:
         ]
         hashes = [timeline_hash(replay(src, edits, transcript)) for _ in range(3)]
         assert len(set(hashes)) == 1, f"Hash not stable across runs: {hashes}"
+
+
+class TestOverlayDisplayOutputInvariant:
+    def test_partial_caption_uses_surviving_interior_words(self):
+        """The public output span remains visible when both endpoint words are cut."""
+        source = _src(10.0)
+        transcript = Transcript(words=[
+            Word(id=make_word_id(i), text=f"w{i}", start_s=i * 0.5, end_s=i * 0.5 + 0.3)
+            for i in range(5)
+        ])
+        edits = [
+            _edit(
+                "e1", "caption",
+                AddCaptionOp(
+                    overlay_id="ov1",
+                    text="middle",
+                    start_word_id=make_word_id(0),
+                    end_word_id=make_word_id(4),
+                ),
+            ),
+            _edit(
+                "e2", "cut caption endpoints",
+                CutOp(ranges=[(0, 15), (60, source.duration_frames)]),
+            ),
+        ]
+
+        timeline = replay(source, edits, transcript)
+        display = timeline_to_output(timeline, transcript)["overlay_displays"][0]
+
+        assert display["status"] == "partial"
+        assert display["start_out_f"] is not None
+        assert display["end_out_f"] is not None
+        assert display["end_out_f"] > display["start_out_f"]
+
+    def test_dormant_caption_has_no_output_times(self):
+        source = _src(10.0)
+        transcript = _transcript(5)
+        edits = [
+            _edit(
+                "e1", "caption",
+                AddCaptionOp(
+                    overlay_id="ov1",
+                    text="gone",
+                    start_word_id=make_word_id(0),
+                    end_word_id=make_word_id(1),
+                ),
+            ),
+            _edit("e2", "cut caption", CutOp(ranges=[(0, 30)])),
+        ]
+
+        display = timeline_to_output(replay(source, edits, transcript), transcript)[
+            "overlay_displays"
+        ][0]
+
+        assert display["status"] == "dormant"
+        assert display["start_out_f"] is None
+        assert display["end_out_f"] is None
+
+    def test_caption_keeps_visible_part_of_midpoint_alive_word(self):
+        source = _src(10.0)
+        transcript = Transcript(words=[
+            Word(id=make_word_id(0), text="clipped", start_s=2.0, end_s=2.4)
+        ])
+        edits = [
+            _edit(
+                "e1", "caption",
+                AddCaptionOp(
+                    overlay_id="ov1",
+                    text="clipped word",
+                    start_word_id=make_word_id(0),
+                    end_word_id=make_word_id(0),
+                ),
+            ),
+            _edit("e2", "clip word edges", CutOp(ranges=[(0, 62), (70, 300)])),
+        ]
+
+        timeline = replay(source, edits, transcript)
+        display = timeline_to_output(timeline, transcript)["overlay_displays"][0]
+
+        assert display["status"] == "active"
+        assert display["start_out_f"] == 0
+        assert display["end_out_f"] == 8
+
+    def test_missing_anchor_id_raises_from_public_output(self):
+        source = _src(10.0)
+        transcript = _transcript(5)
+        edits = [
+            _edit(
+                "e1", "invalid caption",
+                AddCaptionOp(
+                    overlay_id="ov1",
+                    text="invalid",
+                    start_word_id="w9999",
+                    end_word_id=make_word_id(1),
+                ),
+            ),
+        ]
+
+        timeline = replay(source, edits, transcript)
+
+        with pytest.raises(ValueError, match="Overlay 'ov1'.*w9999"):
+            timeline_to_output(timeline, transcript)
 
 
 # ─────────────────────────────────────────────────────────────────

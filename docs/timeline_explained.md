@@ -70,6 +70,8 @@ is_alive(word) = any segment contains midpoint_frame(word)
 ```
 
 If a word is alive, its on-screen time can be derived. If it isn't, it was cut.
+When a time-based cut clips a word but leaves its midpoint alive, the caption
+span uses the word's surviving portion of the segment.
 
 ---
 
