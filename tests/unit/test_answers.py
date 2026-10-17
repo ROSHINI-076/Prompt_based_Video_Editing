@@ -8,6 +8,7 @@ from incubrix.engine.answers import (
     InstructionHandler,
     _clarification_question,
     _format_operation,
+    _target_signature,
     answer,
     handle_instruction,
 )
@@ -176,6 +177,26 @@ def test_mult_part_applies_valid_op_and_names_rejected_part():
     assert len(session.state.stack) == 1
     assert len(session.state.stack[0].ops) == 1
     assert any("speed" in warning and "INVALID_SPEED" in warning for warning in result["warnings"])
+    assert [op["op"] for op in session.state.stack[-1].intent_ops] == ["cut"]
+
+
+def test_failed_part_is_not_recorded_as_an_applied_repeat_target():
+    session = _session()
+    partial = _say(
+        session,
+        {"op": "cut", "target": _time(0, 1)},
+        {"op": "speed", "target": _time(1, 2), "factor": 10},
+        instruction="cut and invalid speed",
+    )
+    assert partial["status"] == "applied"
+
+    later_speed = _say(
+        session,
+        {"op": "speed", "target": _time(1, 2), "factor": 2},
+        instruction="speed the next range",
+    )
+
+    assert later_speed["status"] == "applied"
 
 
 def test_multipart_ambiguity_does_not_apply_prior_resolved_part():
@@ -191,15 +212,294 @@ def test_multipart_ambiguity_does_not_apply_prior_resolved_part():
     assert "cut" not in result["operations"]
 
 
-def test_repeating_identical_cut_is_no_change():
+def test_repeating_identical_current_time_cut_asks_before_applying():
+    session = _session()
+    _say(session, {"op": "cut", "target": _time(0, 1, "current")}, instruction="cut intro")
+
+    result = _say(
+        session,
+        {"op": "cut", "target": _time(0, 1, "current")},
+        instruction="cut intro again",
+    )
+
+    assert result["status"] == "needs_clarification"
+    assert result["options"] == ["Yes, do it again", "No, leave it"]
+    assert "currently 0:00-0:01 = 0:01-0:02 in the original" in result["question"]
+    assert len(session.state.stack) == 1
+
+
+@pytest.mark.parametrize("yes", ["yes", "again", "do it", "do it again"])
+def test_confirming_current_time_repeat_applies_it_as_a_new_edit(yes):
+    session = _session()
+    _say(session, {"op": "cut", "target": _time(0, 1, "current")}, instruction="cut intro")
+    pending = _say(
+        session,
+        {"op": "cut", "target": _time(0, 1, "current")},
+        instruction="cut intro again",
+    )
+
+    result = answer(session, yes)
+
+    assert pending["status"] == "needs_clarification"
+    assert result["status"] == "applied"
+    assert result["edit_id"] == "e2"
+    assert len(session.state.stack) == 2
+    assert session.state.stack[-1].ops[0].ranges == [(round(1 * FPS), round(2 * FPS))]
+
+
+@pytest.mark.parametrize("no", ["no", "cancel", "leave it"])
+def test_declining_current_time_repeat_applies_nothing(no):
+    session = _session()
+    _say(session, {"op": "cut", "target": _time(0, 1, "current")}, instruction="cut intro")
+    pending = _say(
+        session,
+        {"op": "cut", "target": _time(0, 1, "current")},
+        instruction="cut intro again",
+    )
+    before_hash = session.get_timeline_hash()
+
+    result = answer(session, no)
+
+    assert pending["status"] == "needs_clarification"
+    assert result["status"] == "rejected"
+    assert result["error"]["code"] == "NO_CHANGE"
+    assert len(session.state.stack) == 1
+    assert session.get_timeline_hash() == before_hash
+    assert session.state.pending_question is None
+
+
+def test_unclear_repeat_answer_reasks_with_the_same_choices():
     session = _session()
     _say(session, {"op": "cut", "target": _time(0, 1)}, instruction="cut intro")
+    pending = _say(
+        session,
+        {"op": "cut", "target": _time(0, 1)},
+        instruction="cut intro again",
+    )
 
-    result = _say(session, {"op": "cut", "target": _time(0, 1)}, instruction="cut intro")
+    reasked = answer(session, "maybe")
+
+    assert reasked["status"] == "needs_clarification"
+    assert reasked["question"] == pending["question"]
+    assert reasked["options"] == pending["options"]
+    assert len(session.state.stack) == 1
+
+
+def test_non_string_clarification_answer_is_invalid_argument():
+    session = _session()
+    _say(session, {"op": "cut", "target": _time(0, 1)}, instruction="cut first")
+    _say(session, {"op": "cut", "target": _time(0, 1)}, instruction="cut repeat")
+
+    result = answer(session, 1)
+
+    assert result["error"]["code"] == "INVALID_ARGUMENT"
+    assert session.state.pending_question is not None
+
+
+def test_repeating_identical_original_time_cut_is_no_change():
+    session = _session()
+    _say(session, {"op": "cut", "target": _time(0, 1, "original")}, instruction="cut original intro")
+
+    result = _say(
+        session,
+        {"op": "cut", "target": _time(0, 1, "original")},
+        instruction="repeat original-time cut",
+    )
 
     assert result["status"] == "rejected"
     assert result["error"]["code"] == "NO_CHANGE"
     assert len(session.state.stack) == 1
+
+
+def test_repeating_phrase_target_after_cutting_all_choices_is_no_change():
+    session = _many_thanks_session()
+    pending = _say(
+        session,
+        {"op": "cut", "target": {"kind": "phrase", "text": "thanks"}},
+        instruction="cut all thanks",
+    )
+    assert pending["status"] == "needs_clarification"
+    assert answer(session, "all")["status"] == "applied"
+
+    repeated = _say(
+        session,
+        {"op": "cut", "target": {"kind": "phrase", "text": "thanks"}},
+        instruction="remove thanks again",
+    )
+
+    assert repeated["error"]["code"] == "NO_CHANGE"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        {"kind": "time", "from_start": 1},
+        {"kind": "time", "from_end": 1},
+    ],
+)
+def test_current_time_repeats_for_duration_targets_describe_converted_range(target):
+    session = _session()
+    _say(session, {"op": "cut", "target": target}, instruction="cut duration")
+
+    result = _say(
+        session,
+        {"op": "cut", "target": target},
+        instruction="repeat duration cut",
+    )
+
+    assert result["status"] == "needs_clarification"
+    assert "currently " in result["question"]
+    assert "in the original" in result["question"]
+
+
+def test_current_time_keep_only_repeat_requires_confirmation():
+    session = _session()
+    target = _time(0, 3, "current")
+    _say(session, {"op": "keep_only", "target": target}, instruction="keep first three")
+
+    pending = _say(
+        session,
+        {"op": "keep_only", "target": target},
+        instruction="keep first three again",
+    )
+
+    assert pending["status"] == "needs_clarification"
+    applied = answer(session, "yes")
+    assert applied["status"] == "applied"
+    assert applied["edit_id"] == "e2"
+    assert len(session.state.stack) == 2
+
+
+def test_intent_target_signature_shapes_and_invalid_values():
+    assert _target_signature({"target": None}) is None
+    assert _target_signature({"target": {"kind": "time"}}) is None
+    assert _target_signature({
+        "target": {"kind": "time", "start": "bad", "end": 1}
+    }) is None
+    assert _target_signature({
+        "target": {"start": 0, "end": 1}
+    }) == ("time", "current", "range", 0.0, 1.0)
+    assert _target_signature({
+        "target": {"kind": "phrase", "text": "thanks"}
+    })[0] == "phrase"
+    assert _target_signature({
+        "target": {"kind": "topic", "query": "pricing"}
+    })[0] == "topic"
+    assert _target_signature({
+        "target": {"kind": "topic", "query": 7}
+    }) is None
+    assert _target_signature({
+        "target": {"kind": "caption"}
+    }) is None
+
+
+def test_duplicate_identical_instruction_without_a_destructive_target_is_no_change():
+    session = _session()
+    _say(
+        session,
+        {"op": "add_caption", "text": "Welcome", "target": {"kind": "phrase", "text": "welcome"}},
+    )
+    intent = {"op": "style", "target": {"kind": "caption"}, "style": {"color": "red"}}
+    _say(session, intent, instruction="style welcome red")
+    exact_duplicate = _say(session, intent, instruction="style welcome red")
+
+    unchanged = _say(session, intent, instruction="style welcome red once more")
+    duplicate = _say(session, intent, instruction="style welcome red once more")
+
+    assert exact_duplicate["error"]["code"] == "NO_CHANGE"
+    assert unchanged["error"]["code"] == "NO_CHANGE"
+    assert duplicate["error"]["code"] == "NO_CHANGE"
+
+
+def test_malformed_repeat_metadata_does_not_mask_invalid_time_policy():
+    session = _session()
+    _say(session, {"op": "cut", "target": _time(0, 1)}, instruction="cut intro")
+    session.state.stack[-1].intent_ops = [
+        {"op": "cut", "target": {"kind": "time", "start": 0, "end": 1, "policy": "invalid"}}
+    ]
+
+    result = _say(
+        session,
+        {"op": "cut", "target": {"kind": "time", "start": 0, "end": 1, "policy": "invalid"}},
+        instruction="invalid time policy",
+    )
+
+    assert result["error"]["code"] == "INVALID_ARGUMENT"
+
+
+def test_malformed_repeat_metadata_range_is_validated_as_an_argument():
+    session = _session()
+    _say(session, {"op": "cut", "target": _time(0, 1)}, instruction="cut intro")
+    malformed = {
+        "kind": "time",
+        "start": 0,
+        "end": 1,
+        "from_start": 2,
+    }
+    session.state.stack[-1].intent_ops = [{"op": "cut", "target": malformed}]
+
+    result = _say(
+        session,
+        {"op": "cut", "target": malformed},
+        instruction="malformed repeated target",
+    )
+
+    assert result["error"]["code"] == "INVALID_ARGUMENT"
+
+
+def test_confirmed_repeat_commits_a_history_edit_even_if_timeline_is_unchanged():
+    session = _session()
+    _say(
+        session,
+        {"op": "speed", "target": _time(0, 1), "factor": 2},
+        instruction="speed section",
+    )
+    pending = _say(
+        session,
+        {"op": "speed", "target": _time(0, 1), "factor": 2},
+        instruction="repeat speed section",
+    )
+    assert pending["status"] == "needs_clarification"
+    applied = answer(session, "yes")
+    assert applied["status"] == "applied"
+    assert applied["edit_id"] == "e2"
+    assert len(session.state.stack) == 2
+
+
+def test_distinct_original_time_target_inside_earlier_cut_reports_edit_conflict():
+    session = _session()
+    _say(
+        session,
+        {"op": "cut", "target": _time(0, 1, "original")},
+        instruction="cut first second",
+    )
+
+    conflict = _say(
+        session,
+        {"op": "cut", "target": _time(0, 0.5, "original")},
+        instruction="cut a part of the removed second",
+    )
+
+    assert conflict["error"]["code"] == "EDIT_CONFLICT"
+    assert conflict["error"]["details"]["conflicting_edit_id"] == "e1"
+
+
+def test_different_phrase_target_removed_by_prior_cut_reports_edit_conflict():
+    session = _session()
+    _say(
+        session,
+        {"op": "cut", "target": {"kind": "phrase", "text": "thanks"}},
+        instruction="remove only thanks",
+    )
+
+    result = _say(
+        session,
+        {"op": "cut", "target": {"kind": "phrase", "text": "thanks for watching"}},
+        instruction="remove thanks for watching",
+    )
+
+    assert result["error"]["code"] == "EDIT_CONFLICT"
+    assert result["error"]["details"]["conflicting_edit_id"] == "e1"
 
 
 def test_setting_same_speed_twice_is_no_change_not_an_edit():
@@ -414,9 +714,7 @@ def test_cut_all_and_conflict_protection_leave_session_unchanged():
         {"op": "cut", "target": {"kind": "phrase", "text": "thanks"}},
         instruction="remove thanks again",
     )
-    assert conflict["error"]["code"] == "EDIT_CONFLICT"
-    assert "e1" in conflict["error"]["message"]
-    assert "remove thanks once" in conflict["error"]["message"]
+    assert conflict["error"]["code"] == "NO_CHANGE"
 
 
 def test_resolved_time_policy_original_is_reported_and_caption_only_part_has_span():
@@ -457,37 +755,61 @@ def test_target_forms_topic_and_invalid_structured_intents():
     )
 
     invalid = [
-        ({"op": "cut", "target": None}, "BAD_RANGE"),
-        ({"op": "cut", "target": {"kind": "mystery"}}, "BAD_RANGE"),
-        ({"op": "cut", "target": {"kind": "phrase", "text": "thanks", "relation": "around"}}, "BAD_RANGE"),
-        ({"op": "restore", "target": {"kind": "overlap", "start": 0}}, "BAD_RANGE"),
-        ({"op": "speed", "target": _time(0, 1), "factor": True}, "BAD_RANGE"),
-        ({"op": "speed", "target": _time(0, 1), "factor": "fast"}, "BAD_RANGE"),
-        ({"op": "speed", "target": _time(0, 1), "factor": float("inf")}, "BAD_RANGE"),
-        ({"op": "unsupported", "target": _time(0, 1)}, "BAD_RANGE"),
+        ({"op": "cut", "target": None}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "mystery"}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "phrase", "text": "thanks", "relation": "around"}}, "INVALID_ARGUMENT"),
+        ({"op": "restore", "target": {"kind": "overlap", "start": 0}}, "INVALID_ARGUMENT"),
+        ({"op": "speed", "target": _time(0, 1), "factor": True}, "INVALID_SPEED"),
+        ({"op": "speed", "target": _time(0, 1), "factor": "fast"}, "INVALID_SPEED"),
+        ({"op": "speed", "target": _time(0, 1), "factor": float("inf")}, "INVALID_SPEED"),
+        ({"op": "speed", "target": _time(0, 1), "factor": float("nan")}, "INVALID_SPEED"),
+        ({"op": "speed", "target": _time(0, 1)}, "INVALID_SPEED"),
+        ({"op": "speed", "target": None, "factor": 10}, "INVALID_SPEED"),
+        ({"op": "unsupported", "target": _time(0, 1)}, "UNSUPPORTED_OPERATION"),
         ({"op": "cut", "target": {"kind": "phrase", "text": "hello", "relation": "before"}}, "NO_MATCH"),
         ({"op": "speed", "target": {"kind": "phrase", "text": "hello", "relation": "before"}, "factor": 2}, "NO_MATCH"),
-        ({"op": "add_caption", "text": "", "target": {"kind": "phrase", "text": "welcome"}}, "BAD_RANGE"),
+        ({"op": "add_caption", "text": "", "target": {"kind": "phrase", "text": "welcome"}}, "INVALID_ARGUMENT"),
         ({"op": "style", "style": {"size": 18}}, "NO_TARGET"),
         ({"op": "reorder", "target": _time(0, 1), "before": 10}, "BAD_RANGE"),
         ({"op": "reorder", "target": _time(0, 1), "before": {"kind": "nowhere"}}, "BAD_RANGE"),
         ({"op": "reorder", "target": _time(0, 1), "before": {"kind": "phrase"}}, "BAD_RANGE"),
         ({"op": "reorder", "target": {"kind": "phrase", "text": "absent"}, "before": "end"}, "NO_MATCH"),
-        ({"op": "style", "target": {"kind": "caption", "text": 7}, "style": {"color": "red"}}, "BAD_RANGE"),
+        ({"op": "style", "target": {"kind": "caption", "text": 7}, "style": {"color": "red"}}, "INVALID_ARGUMENT"),
+        ({"op": "style", "target": {"kind": "caption"}, "style": []}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "time", "start": 0}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "time"}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "time", "start": "zero", "end": 1}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "time", "start": 0, "end": 1, "policy": "local"}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "time", "start": 0, "end": 1, "from_start": 2}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "phrase", "text": ""}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "phrase", "text": "thanks", "speaker": 3}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "topic", "query": ""}}, "INVALID_ARGUMENT"),
+        ({"op": "cut", "target": {"kind": "topic", "query": "pricing", "speaker": False}}, "INVALID_ARGUMENT"),
+        ({"op": "restore", "target": {"kind": "edit"}}, "INVALID_ARGUMENT"),
+        ({"op": "reorder", "target": _time(0, 1), "before": {"kind": "phrase", "phrase": "thanks", "speaker": 3}}, "BAD_RANGE"),
+        ({"op": "reorder", "target": _time(0, 1), "before": {"kind": "time"}}, "BAD_RANGE"),
+        ({"target": _time(0, 1)}, "INVALID_ARGUMENT"),
+        ({"op": "add_caption", "text": "Welcome", "target": _time(1, 2), "style": []}, "INVALID_ARGUMENT"),
     ]
     for op, code in invalid:
-        response = _say(_session(), op, instruction=f"invalid {code} {op['op']}")
+        response = _say(
+            _session(), op, instruction=f"invalid {code} {op.get('op', 'missing operation')}"
+        )
         assert response["status"] == "rejected"
         assert response["error"]["code"] == code
 
-    assert _say(_session(), instruction="empty")["error"]["code"] == "BAD_RANGE"
-    assert _say(_session(), 5, instruction="not a mapping")["error"]["code"] == "BAD_RANGE"
+    assert _say(_session(), instruction="empty")["error"]["code"] == "INVALID_ARGUMENT"
+    assert _say(_session(), 5, instruction="not a mapping")["error"]["code"] == "INVALID_ARGUMENT"
+    assert handle_instruction(_session(), "not an operation list")["error"]["code"] == "INVALID_ARGUMENT"
+    assert handle_instruction(
+        _session(), [{"op": "undo"}], instruction=4
+    )["error"]["code"] == "INVALID_ARGUMENT"
     assert _say(
         _session(),
         {"op": "undo"},
         {"op": "cut", "target": _time(0, 1)},
         instruction="mixed undo",
-    )["error"]["code"] == "BAD_RANGE"
+    )["error"]["code"] == "INVALID_ARGUMENT"
     caption_session = _session()
     _say(
         caption_session,
@@ -499,7 +821,7 @@ def test_target_forms_topic_and_invalid_structured_intents():
         {"op": "style", "target": {"kind": "caption"}, "style": {}},
         instruction="apply empty style",
     )
-    assert empty_style["error"]["code"] == "BAD_RANGE"
+    assert empty_style["error"]["code"] == "INVALID_ARGUMENT"
 
 
 def test_invalid_reorder_answer_reasks_at_destination_and_source_ambiguity():
@@ -644,7 +966,7 @@ def test_multi_range_keep_and_reorder_reject_but_valid_parts_can_still_apply():
         {"op": "keep_only", "target": {"kind": "phrase", "text": "thanks", "choice": "all"}},
         instruction="keep all thanks",
     )
-    assert keep["error"]["code"] == "BAD_RANGE"
+    assert keep["error"]["code"] == "INVALID_ARGUMENT"
 
     reorder = _say(
         session,
@@ -655,7 +977,7 @@ def test_multi_range_keep_and_reorder_reject_but_valid_parts_can_still_apply():
         },
         instruction="reorder all thanks",
     )
-    assert reorder["error"]["code"] == "BAD_RANGE"
+    assert reorder["error"]["code"] == "INVALID_ARGUMENT"
 
     partial = _say(
         _session(2),
@@ -770,14 +1092,13 @@ def test_two_occurrence_ambiguity_uses_and_separator_and_unknown_choice_reasks()
     assert answer(session, "invalid")["status"] == "needs_clarification"
 
 
-def test_source_time_conflict_includes_edit_details_and_from_duration_forms():
+def test_repeated_original_time_target_is_no_change_for_each_time_form():
     for target in (_time(1, 2, "original"), {"kind": "time", "from_start": 2, "policy": "original"},
                    {"kind": "time", "from_end": 2, "policy": "original"}):
         session = _session()
         _say(session, {"op": "cut", "target": target}, instruction="prior cut")
         conflict = _say(session, {"op": "cut", "target": target}, instruction="repeat source range")
-        assert conflict["error"]["code"] == "EDIT_CONFLICT"
-        assert conflict["error"]["details"]["conflicting_edit_id"] == "e1"
+        assert conflict["error"]["code"] == "NO_CHANGE"
 
 
 def test_conflict_search_skips_edits_disabled_by_restore():
@@ -803,5 +1124,4 @@ def test_conflict_search_skips_edits_disabled_by_restore():
         {"op": "cut", "target": {"kind": "phrase", "text": "thanks"}},
         instruction="cut thanks another time",
     )
-    assert conflict["error"]["code"] == "EDIT_CONFLICT"
-    assert conflict["error"]["details"]["conflicting_edit_id"] == "e3"
+    assert conflict["error"]["code"] == "NO_CHANGE"

@@ -142,7 +142,7 @@ def _target_dict(value: Any) -> dict:
     if isinstance(value, str):
         return {"kind": "phrase", "text": value}
     if not isinstance(value, Mapping):
-        raise _InputError("BAD_RANGE", "An operation target must be a structured object.")
+        raise _InputError("INVALID_ARGUMENT", "An operation target must be a structured object.")
     result = dict(value)
     if "kind" not in result:
         if "start" in result or "end" in result or "from_start" in result or "from_end" in result:
@@ -157,6 +157,27 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
     kind = target.get("kind")
     choice = target.get("choice")
     if kind == "time":
+        policy = target.get("policy", "current")
+        if policy not in ("current", "original"):
+            raise _InputError("INVALID_ARGUMENT", "Time policy must be 'current' or 'original'.")
+        has_start, has_end = target.get("start") is not None, target.get("end") is not None
+        has_from_start = target.get("from_start") is not None
+        has_from_end = target.get("from_end") is not None
+        if (
+            (has_start != has_end)
+            or sum((has_start, has_end, has_from_start, has_from_end)) not in (0, 2, 1)
+            or (has_start and (has_from_start or has_from_end))
+            or (has_from_start and has_from_end)
+        ):
+            raise _InputError(
+                "INVALID_ARGUMENT",
+                "Time target must provide start and end, from_start, or from_end.",
+            )
+        if not (has_start or has_from_start or has_from_end):
+            raise _InputError(
+                "INVALID_ARGUMENT",
+                "Time target is missing its range fields.",
+            )
         bounds = {
             name: _as_float(target[name], name)
             for name in ("start", "end", "from_start", "from_end")
@@ -167,28 +188,40 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
             end=bounds.get("end"),
             from_start=bounds.get("from_start"),
             from_end=bounds.get("from_end"),
-            policy=target.get("policy", "current"),
+            policy=policy,
         ))
     if kind == "phrase":
         relation = target.get("relation", "at")
         if relation not in ("at", "before", "after"):
-            raise _InputError("BAD_RANGE", f"Unsupported phrase relation: {relation!r}.")
+            raise _InputError("INVALID_ARGUMENT", f"Unsupported phrase relation: {relation!r}.")
+        text = target.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise _InputError("INVALID_ARGUMENT", "Phrase target requires non-empty text.")
+        speaker = target.get("speaker")
+        if speaker is not None and not isinstance(speaker, str):
+            raise _InputError("INVALID_ARGUMENT", "Phrase speaker must be a string.")
         return resolver.resolve_phrase(PhraseTarget(
-            text=str(target.get("text", "")),
+            text=text,
             relation=relation,
-            speaker=target.get("speaker"),
+            speaker=speaker,
             choice=choice,
         ))
     if kind == "topic":
+        query = target.get("query", target.get("text", ""))
+        if not isinstance(query, str) or not query.strip():
+            raise _InputError("INVALID_ARGUMENT", "Topic target requires a non-empty query.")
+        speaker = target.get("speaker")
+        if speaker is not None and not isinstance(speaker, str):
+            raise _InputError("INVALID_ARGUMENT", "Topic speaker must be a string.")
         return resolver.resolve_topic(TopicTarget(
-            query=str(target.get("query", target.get("text", ""))),
-            speaker=target.get("speaker"),
+            query=query,
+            speaker=speaker,
             choice=choice,
         ))
     if kind == "caption":
         text = target.get("text")
         if text is not None and not isinstance(text, str):
-            raise _InputError("BAD_RANGE", "Caption selection text must be a string.")
+            raise _InputError("INVALID_ARGUMENT", "Caption selection text must be a string.")
         return resolver.resolve_caption(CaptionTarget(
             text=text,
             choice=choice,
@@ -199,15 +232,18 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
             start = target.get("start")
             end = target.get("end")
             if start is None or end is None:
-                raise _InputError("BAD_RANGE", "Restore overlap requires start and end times.")
+                raise _InputError("INVALID_ARGUMENT", "Restore overlap requires start and end times.")
             overlap = (_as_float(start, "Overlap start"), _as_float(end, "Overlap end"))
+        edit_id = target.get("edit_id") if kind == "edit" else None
+        if kind == "edit" and (not isinstance(edit_id, str) or not edit_id):
+            raise _InputError("INVALID_ARGUMENT", "Restore edit target requires an edit id.")
         return resolver.resolve_restore(RestoreTarget(
-            edit_id=target.get("edit_id") if kind == "edit" else None,
+            edit_id=edit_id,
             overlap=overlap,
             any=kind == "any",
             choice=choice,
         ))
-    raise _InputError("BAD_RANGE", f"Unsupported target kind: {kind!r}.")
+    raise _InputError("INVALID_ARGUMENT", f"Unsupported target kind: {kind!r}.")
 
 
 def _destination_resolution(value: Any, resolver: Resolver) -> Resolution:
@@ -222,6 +258,9 @@ def _destination_resolution(value: Any, resolver: Resolver) -> Resolution:
         phrase = value.get("phrase", value.get("text"))
         if not isinstance(phrase, str) or not phrase.strip():
             raise _InputError("BAD_RANGE", "A reorder phrase destination must contain text.")
+        speaker = value.get("speaker")
+        if speaker is not None and not isinstance(speaker, str):
+            raise _InputError("BAD_RANGE", "A reorder destination speaker must be a string.")
         return resolver.resolve_reorder_destination(ReorderDestination(
             kind="phrase",
             phrase=phrase,
@@ -230,9 +269,11 @@ def _destination_resolution(value: Any, resolver: Resolver) -> Resolution:
         ))
     if kind == "time":
         time_s = value.get("time_s", value.get("time"))
+        if time_s is None:
+            raise _InputError("BAD_RANGE", "A reorder time destination requires a time.")
         return resolver.resolve_reorder_destination(ReorderDestination(
             kind="time",
-            time_s=None if time_s is None else _as_float(time_s, "Destination time"),
+            time_s=_as_float(time_s, "Destination time", error_code="BAD_RANGE"),
         ))
     if kind in ("start", "end"):
         return resolver.resolve_reorder_destination(ReorderDestination(kind=kind))
@@ -282,15 +323,15 @@ def _word_groups(word_ids: Sequence[str], transcript: Transcript) -> list[list[W
     return groups
 
 
-def _as_float(value: Any, label: str) -> float:
+def _as_float(value: Any, label: str, *, error_code: str = "INVALID_ARGUMENT") -> float:
     if isinstance(value, bool):
-        raise _InputError("BAD_RANGE", f"{label} must be numeric.")
+        raise _InputError(error_code, f"{label} must be numeric.")
     try:
         number = float(value)
     except (OverflowError, TypeError, ValueError) as exc:
-        raise _InputError("BAD_RANGE", f"{label} must be numeric.") from exc
+        raise _InputError(error_code, f"{label} must be numeric.") from exc
     if not math.isfinite(number):
-        raise _InputError("BAD_RANGE", f"{label} must be finite.")
+        raise _InputError(error_code, f"{label} must be finite.")
     return number
 
 
@@ -300,7 +341,39 @@ def _resolve_part(
     edit_id: str,
     part_index: int,
 ) -> tuple[list[AnyOp], Resolution | None, str, str | None]:
-    name = str(op.get("op", ""))
+    raw_name = op.get("op")
+    if not isinstance(raw_name, str) or not raw_name.strip():
+        raise _InputError("INVALID_ARGUMENT", "An operation requires a non-empty name.")
+    name = raw_name
+    supported = {
+        "cut", "keep_only", "speed", "reorder", "add_caption", "style",
+        "mute", "bleep", "restore",
+    }
+    if name not in supported:
+        raise _InputError("UNSUPPORTED_OPERATION", f"Unsupported instruction operation: {name!r}.")
+    speed_factor = 0.0
+    if name == "speed":
+        speed_factor = _as_float(
+            op.get("factor"), "Speed factor", error_code="INVALID_SPEED"
+        )
+        if not MIN_SPEED <= speed_factor <= MAX_SPEED:
+            raise _InputError(
+                "INVALID_SPEED",
+                f"Speed {speed_factor:g}x is outside the allowed range "
+                f"{MIN_SPEED:g}x-{MAX_SPEED:g}x.",
+                {"minimum": MIN_SPEED, "maximum": MAX_SPEED, "requested": speed_factor},
+            )
+    if name == "add_caption":
+        text = op.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise _InputError("INVALID_ARGUMENT", "A caption requires non-empty text.")
+        style = op.get("style", {})
+        if not isinstance(style, Mapping):
+            raise _InputError("INVALID_ARGUMENT", "Caption style must be an object.")
+    if name == "style":
+        style = op.get("style")
+        if not isinstance(style, Mapping) or not style:
+            raise _InputError("INVALID_ARGUMENT", "A style operation requires a non-empty style object.")
     resolved, ambiguous_path = _active_target_path(op, resolver)
     if resolved.status != "RESOLVED":
         return [], resolved, ambiguous_path, name
@@ -311,34 +384,26 @@ def _resolve_part(
         return [CutOp(ranges=resolved.source_ranges)], None, "", name
     if name == "keep_only":
         if len(resolved.source_ranges) != 1:
-            raise _InputError("BAD_RANGE", "Keep-only must resolve to exactly one continuous range.")
+            raise _InputError("INVALID_ARGUMENT", "Keep-only must resolve to exactly one continuous range.")
         return [KeepOnlyOp(range=resolved.source_ranges[0])], None, "", name
     if name == "speed":
-        factor = _as_float(op.get("factor"), "Speed factor")
-        if not MIN_SPEED <= factor <= MAX_SPEED:
-            raise _InputError(
-                "INVALID_SPEED",
-                f"Speed {factor:g}x is outside the allowed range {MIN_SPEED:g}x-{MAX_SPEED:g}x.",
-                {"minimum": MIN_SPEED, "maximum": MAX_SPEED, "requested": factor},
-            )
         if not resolved.source_ranges:
             raise _InputError("NO_MATCH", "The speed target has no surviving source range.")
         return [
-            SpeedOp(range=source_range, factor=factor)
+            SpeedOp(range=source_range, factor=speed_factor)
             for source_range in resolved.source_ranges
         ], None, "", name
     if name == "reorder":
         source_result = _target_resolution(op.get("target"), resolver)
         assert source_result.status == "RESOLVED"
         if len(source_result.source_ranges) != 1:
-            raise _InputError("BAD_RANGE", "Reorder must resolve to one continuous source range.")
+            raise _InputError("INVALID_ARGUMENT", "Reorder must resolve to one continuous source range.")
         destination = resolved.destination_frame
         assert destination is not None
         return [ReorderOp(range=source_result.source_ranges[0], before=destination)], None, "", name
     if name == "add_caption":
         text = op.get("text")
-        if not isinstance(text, str) or not text.strip():
-            raise _InputError("BAD_RANGE", "A caption requires non-empty text.")
+        assert isinstance(text, str)
         word_ids = resolved.word_ids or _words_for_ranges(
             resolved.source_ranges, resolver.transcript, resolver
         )
@@ -353,13 +418,11 @@ def _resolve_part(
                 text=text,
                 start_word_id=group[0].id,
                 end_word_id=group[-1].id,
-                style=dict(op.get("style") or {}),
+                style=dict(op.get("style", {})),
             ))
         return caption_ops, None, "", name
     if name == "style":
         style = op.get("style")
-        if not isinstance(style, Mapping) or not style:
-            raise _InputError("BAD_RANGE", "A style operation requires a non-empty style object.")
         assert resolved.overlay_ids
         return [
             StyleOp(overlay_id=overlay_id, style=dict(style))
@@ -388,7 +451,6 @@ def _resolve_part(
             RestoreOp(target_edit_id=target_edit_id)
             for target_edit_id in resolved.edit_ids
         ], None, "", name
-    raise _InputError("BAD_RANGE", f"Unsupported instruction operation: {name!r}.")
 
 
 def _resolution_error(resolution: Resolution, operation: str) -> tuple[str, str, Any]:
@@ -588,6 +650,144 @@ def _time_policy(ops: Sequence[Mapping]) -> str:
     return "current"
 
 
+def _target_signature(intent: Mapping) -> tuple | None:
+    target = intent.get("target")
+    if not isinstance(target, Mapping):
+        return None
+    kind = target.get("kind")
+    if kind is None and any(
+        key in target for key in ("start", "end", "from_start", "from_end")
+    ):
+        kind = "time"
+    if kind == "time":
+        policy = target.get("policy", "current")
+        forms = (
+            ("range", "start", "end"),
+            ("from_start", "from_start"),
+            ("from_end", "from_end"),
+        )
+        for form in forms:
+            name = form[0]
+            keys = form[1:]
+            if all(key in target and target[key] is not None for key in keys):
+                try:
+                    values = tuple(
+                        _as_float(target[key], key) for key in keys
+                    )
+                except _InputError:
+                    return None
+                return ("time", policy, name, *values)
+        return None
+    if kind in ("phrase", "topic"):
+        selector = target.get("text") if kind == "phrase" else target.get(
+            "query", target.get("text")
+        )
+        if not isinstance(selector, str):
+            return None
+        return (
+            kind,
+            selector.casefold(),
+            target.get("relation", "at"),
+            target.get("speaker"),
+        )
+    return None
+
+
+def _destructive_intent(intent: Mapping) -> bool:
+    return intent.get("op") in ("cut", "keep_only", "speed")
+
+
+def _last_active_edit(session: SessionManager) -> Edit | None:
+    edits = session.state.stack
+    active_ids = Resolver(
+        session.get_timeline(), session.state.transcript, edits
+    )._active_edit_ids()
+    return next((edit for edit in reversed(edits) if edit.id in active_ids), None)
+
+
+def _repeat_match(
+    session: SessionManager,
+    intent_ops: Sequence[Mapping],
+    *,
+    current_only: bool,
+) -> tuple[int, Resolution] | None:
+    previous = _last_active_edit(session)
+    if previous is None or not previous.intent_ops:
+        return None
+    prior_signatures = {
+        (intent.get("op"), _target_signature(intent))
+        for intent in previous.intent_ops
+        if _destructive_intent(intent)
+    }
+    resolver = Resolver(
+        session.get_timeline(), session.state.transcript, session.state.stack
+    )
+    for index, intent in enumerate(intent_ops):
+        if not _destructive_intent(intent):
+            continue
+        signature = _target_signature(intent)
+        if signature is None or (
+            intent.get("op"), signature
+        ) not in prior_signatures:
+            continue
+        if current_only and (
+            signature[0] != "time" or signature[1] != "current"
+        ):
+            continue
+        try:
+            resolution = _target_resolution(intent.get("target"), resolver)
+        except _InputError:
+            continue
+        if resolution.status == "RESOLVED":
+            return index, resolution
+    return None
+
+
+def _same_target_as_last_active_edit(session: SessionManager, intent: Mapping) -> bool:
+    previous = _last_active_edit(session)
+    if previous is None:
+        return False
+    signature = _target_signature(intent)
+    return signature is not None and any(
+        prior.get("op") == intent.get("op")
+        and _target_signature(prior) == signature
+        for prior in previous.intent_ops
+    )
+
+
+def _repeat_question(intent: Mapping, resolution: Resolution, session: SessionManager) -> str:
+    target = _target_dict(intent.get("target"))
+    timeline = session.get_timeline()
+    duration_s = sum(
+        max(1, round((segment.src_out_f - segment.src_in_f) / segment.speed))
+        for segment in timeline.segments
+    ) / timeline.source.fps
+    if target.get("from_start") is not None:
+        start_s, end_s = 0.0, min(float(target["from_start"]), duration_s)
+    elif target.get("from_end") is not None:
+        start_s, end_s = max(0.0, duration_s - float(target["from_end"])), duration_s
+    else:
+        start_s = float(target["start"])
+        end_s = min(float(target["end"]), duration_s)
+    span = max(0.0, end_s - start_s)
+    span_label = f"{span:g} second" + ("" if span == 1 else "s")
+    note_prefix = "Times read as current (edited) time: "
+    conversion = resolution.note.removeprefix(note_prefix).rstrip(".")
+    return (
+        "You already did this in the last step. Doing it again would affect "
+        f"the next {span_label} (currently {conversion}). Do it again?"
+    )
+
+
+def _repeat_answer_choice(answer_text: str) -> bool | None:
+    normalized = answer_text.strip().casefold()
+    if normalized in {"yes", "again", "do it", "do it again"}:
+        return True
+    if normalized in {"no", "cancel", "leave it"}:
+        return False
+    return None
+
+
 def _answer_choice(answer_text: str) -> int | str | None:
     normalized = answer_text.strip().casefold()
     normalized = re.sub(r"^(?:the|number)\s+", "", normalized)
@@ -657,6 +857,7 @@ def handle_instruction(
     intent_ops: Sequence[Mapping[str, Any]],
     *,
     instruction: str = "",
+    _confirmed_repeat: bool = False,
 ) -> dict:
     """Resolve and apply one structured instruction as exactly one Edit.
 
@@ -665,23 +866,60 @@ def handle_instruction(
     commit together as a single undo step.
     """
     session.state.pending_question = None
+    if not isinstance(intent_ops, Sequence) or isinstance(intent_ops, (str, bytes)):
+        return _error_response(
+            session, "INVALID_ARGUMENT", "Instruction operations must be a list."
+        )
     if not intent_ops:
-        return _error_response(session, "BAD_RANGE", "An instruction must contain at least one operation.")
+        return _error_response(
+            session, "INVALID_ARGUMENT", "An instruction must contain at least one operation."
+        )
     if any(not isinstance(op, Mapping) for op in intent_ops):
-        return _error_response(session, "BAD_RANGE", "Every intent operation must be an object.")
+        return _error_response(
+            session, "INVALID_ARGUMENT", "Every intent operation must be an object."
+        )
     copied_ops = [dict(op) for op in intent_ops]
+    if not isinstance(instruction, str):
+        return _error_response(
+            session, "INVALID_ARGUMENT", "Instruction text must be a string."
+        )
     if len(copied_ops) == 1 and copied_ops[0].get("op") in ("undo", "redo"):
         return _handle_history_operation(session, copied_ops[0]["op"])
     if any(op.get("op") in ("undo", "redo") for op in copied_ops):
         return _error_response(
-            session, "BAD_RANGE", "Undo and redo must be the only operation in an instruction."
+            session,
+            "INVALID_ARGUMENT",
+            "Undo and redo must be the only operation in an instruction.",
         )
 
     instruction_text = instruction.strip()
     if not instruction_text:
         instruction_text = json.dumps(copied_ops, sort_keys=True, separators=(",", ":"))
+    if not _confirmed_repeat:
+        repeat = _repeat_match(session, copied_ops, current_only=True)
+        if repeat is not None:
+            op_index, resolution = repeat
+            session.state.pending_question = {
+                "kind": "repeat",
+                "intent_ops": copy.deepcopy(copied_ops),
+                "instruction": instruction_text,
+                "op_index": op_index,
+                "question": _repeat_question(
+                    copied_ops[op_index], resolution, session
+                ),
+                "options": ["Yes, do it again", "No, leave it"],
+            }
+            return _response(
+                session,
+                "needs_clarification",
+                question=session.state.pending_question["question"],
+                options=session.state.pending_question["options"],
+                summary="No changes were applied; confirm whether to repeat the current-time edit.",
+                time_policy="current",
+            )
     if (
-        session.state.stack
+        not _confirmed_repeat
+        and session.state.stack
         and session.state.stack[-1].instruction.casefold() == instruction_text.casefold()
     ):
         return _error_response(
@@ -693,6 +931,7 @@ def handle_instruction(
     preview = _preview_session(session)
     edit_id = f"e{session.edit_counter + 1}"
     resolved_ops: list[AnyOp] = []
+    applied_intents: list[dict[str, Any]] = []
     resolution_notes: list[str] = []
     warnings: list[str] = []
     first_error: tuple[str, str, Any] | None = None
@@ -752,13 +991,23 @@ def handle_instruction(
             code, message, details = _resolution_error(unresolved, operation_name)
             conflict = _conflicting_cut(intent, resolver)
             if conflict is not None:
-                message = (
-                    f"{message} It conflicts with earlier edit {conflict[0]} "
-                    f"('{conflict[1]}'), which removed this content."
-                )
-                code = "EDIT_CONFLICT"
-                details = {**details, "conflicting_edit_id": conflict[0],
-                           "conflicting_instruction": conflict[1]}
+                if (
+                    _destructive_intent(intent)
+                    and _same_target_as_last_active_edit(session, intent)
+                ):
+                    code = "NO_CHANGE"
+                    message = "This target was already removed; no change was made."
+                else:
+                    message = (
+                        f"{message} It conflicts with earlier edit {conflict[0]} "
+                        f"('{conflict[1]}'), which removed this content."
+                    )
+                    code = "EDIT_CONFLICT"
+                    details = {
+                        **details,
+                        "conflicting_edit_id": conflict[0],
+                        "conflicting_instruction": conflict[1],
+                    }
             part_message = f"{operation_name}: {message}"
             warnings.append(f"{part_message} [{code}]")
             if first_error is None:
@@ -769,7 +1018,12 @@ def handle_instruction(
         assert part_ops
         previous_hash = preview.get_timeline_hash()
         candidate_ops = resolved_ops + part_ops
-        candidate_edit = Edit(id=edit_id, instruction=instruction_text, ops=candidate_ops)
+        candidate_edit = Edit(
+            id=edit_id,
+            instruction=instruction_text,
+            ops=candidate_ops,
+            intent_ops=copy.deepcopy(applied_intents + [intent]),
+        )
         preview.state.stack = copy.deepcopy(session.state.stack) + [candidate_edit]
         preview.state.edit_counter = session.edit_counter + 1
         preview.state.redo = []
@@ -785,16 +1039,32 @@ def handle_instruction(
             preview = _preview_session(session)
             if resolved_ops:
                 preview.state.stack.append(
-                    Edit(id=edit_id, instruction=instruction_text, ops=copy.deepcopy(resolved_ops))
+                    Edit(
+                        id=edit_id,
+                        instruction=instruction_text,
+                        ops=copy.deepcopy(resolved_ops),
+                        intent_ops=copy.deepcopy(applied_intents),
+                    )
                 )
                 preview.state.edit_counter = session.edit_counter + 1
             continue
         if candidate_hash == previous_hash:
+            if _confirmed_repeat:
+                resolved_ops = candidate_ops
+                applied_intents.append(copy.deepcopy(intent))
+                continue
             conflict = _conflicting_cut(intent, resolver)
-            code = "EDIT_CONFLICT" if conflict is not None else "NO_CHANGE"
+            repeated_target = _destructive_intent(intent) and (
+                _same_target_as_last_active_edit(session, intent)
+            )
+            code = (
+                "NO_CHANGE"
+                if repeated_target or conflict is None
+                else "EDIT_CONFLICT"
+            )
             message = "This part leaves the timeline unchanged."
             details = None
-            if conflict is not None:
+            if conflict is not None and not repeated_target:
                 message = (
                     f"This part conflicts with earlier edit {conflict[0]} "
                     f"('{conflict[1]}'), which already removed the target."
@@ -809,11 +1079,17 @@ def handle_instruction(
             preview = _preview_session(session)
             if resolved_ops:
                 preview.state.stack.append(
-                    Edit(id=edit_id, instruction=instruction_text, ops=copy.deepcopy(resolved_ops))
+                    Edit(
+                        id=edit_id,
+                        instruction=instruction_text,
+                        ops=copy.deepcopy(resolved_ops),
+                        intent_ops=copy.deepcopy(applied_intents),
+                    )
                 )
                 preview.state.edit_counter = session.edit_counter + 1
             continue
         resolved_ops = candidate_ops
+        applied_intents.append(copy.deepcopy(intent))
 
     if not resolved_ops:
         assert first_error is not None
@@ -831,6 +1107,7 @@ def handle_instruction(
         )
 
     committed = session.push_edit(instruction_text, resolved_ops)
+    committed.intent_ops = copy.deepcopy(applied_intents)
     final_timeline = session.get_timeline()
 
     operation_names = ", ".join(dict.fromkeys(str(op.get("op", "operation")) for op in copied_ops))
@@ -903,6 +1180,36 @@ def answer(session: SessionManager, answer_text: str) -> dict:
     pending = session.state.pending_question
     if pending is None:
         return _error_response(session, "NO_MATCH", "There is no pending question to answer.")
+    if not isinstance(answer_text, str):
+        return _error_response(
+            session, "INVALID_ARGUMENT", "A clarification answer must be a string."
+        )
+    if pending.get("kind") == "repeat":
+        choice = _repeat_answer_choice(answer_text)
+        if choice is None:
+            return _response(
+                session,
+                "needs_clarification",
+                question=pending["question"],
+                options=copy.deepcopy(pending["options"]),
+                summary="Please answer yes to repeat the edit or no to leave the timeline unchanged.",
+                time_policy="current",
+            )
+        session.state.pending_question = None
+        if not choice:
+            return _error_response(
+                session,
+                "NO_CHANGE",
+                "The repeated edit was cancelled; no change was made.",
+                summary="No changes were applied.",
+                time_policy="current",
+            )
+        return handle_instruction(
+            session,
+            copy.deepcopy(pending["intent_ops"]),
+            instruction=pending["instruction"],
+            _confirmed_repeat=True,
+        )
     choice = _answer_choice(answer_text)
     if choice is None:
         saved_ops = pending["intent_ops"]

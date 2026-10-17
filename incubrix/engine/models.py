@@ -272,12 +272,15 @@ _ALL_OPS = (
 class Edit(BaseModel):
     """One instruction = one Edit containing resolved, source-anchored ops.
 
-    Edit IDs are monotonic ('e1', 'e2', ...) and never reused.
+    Edit IDs are monotonic ('e1', 'e2', ...) and never reused. `intent_ops`
+    retains input selectors for safe repeat confirmation; replay ignores them.
     """
 
     id: str
     instruction: str
     ops: list[AnyOp]
+    # This metadata supports confirmation without changing source-anchored ops.
+    intent_ops: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SessionState(BaseModel):

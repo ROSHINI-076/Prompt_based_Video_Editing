@@ -81,3 +81,10 @@ Restore overlap bounds are expressed in original-time seconds. Caption option di
 read only from `timeline_to_output()`.
 **Rationale:** This keeps the resolver independent of API, persistence, and model providers while
 making the response layer responsible for deciding how to present a resolution status.
+
+## D007: Clarify repeated current-time destructive edits
+
+**Date:** 2026-10-17
+**Context:** Replaying the same current-time cut, keep-only, or speed target after an edit addresses different source content because the edited timeline has shifted.
+**Decision:** When a destructive time target in current time exactly matches the target stored with the most recent active edit, ask for explicit confirmation and show the current-to-original conversion. A yes creates a new edit against the current timeline; a no rejects with `NO_CHANGE`. Exact repeats in original time, and phrase repeats whose target was already removed, remain `NO_CHANGE`.
+**Rationale:** Current-time operations are interpreted where the creator is now looking, but applying an identical destructive request twice without confirmation would silently affect different content. Original-time and phrase targets remain content-anchored and do not silently shift.
