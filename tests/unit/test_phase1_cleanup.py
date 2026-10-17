@@ -392,7 +392,6 @@ class TestTimelineLengthInvariant:
         """Full mix: cut + speed + reorder + restore; invariant holds throughout."""
         src = _src(10.0)
         transcript = _transcript(20)
-        original = int(10.0 * FPS)
 
         e1 = _edit("e1", "cut 0-1s", CutOp(ranges=[(0, 30)]))
         e2 = _edit("e2", "2x on 1-3s", SpeedOp(range=(30, 90), factor=2.0))
@@ -531,7 +530,7 @@ class TestSessionEditCounterProperty:
         assert mgr.edit_counter == 2
 
 
-class TestTimeparse_MoreEdgeCases:
+class TestTimeparseMoreEdgeCases:
     """timeparse.py: remaining uncovered paths."""
 
     def test_empty_string_returns_none(self):

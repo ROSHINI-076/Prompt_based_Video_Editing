@@ -439,7 +439,7 @@ class Resolver:
         return self.layout.out_range_to_src_ranges(0, boundary_out)
 
     def resolve_phrase(self, target: PhraseTarget) -> Resolution:
-        """Resolve a phrase to snapped source ranges, requiring an explicit repeated-match choice."""
+        """Resolve snapped source ranges, requiring a choice when a phrase repeats."""
         matches = self._phrase_matches(target.text, target.speaker)
         if not matches:
             dead = self._phrase_matches_all_words(target.text, target.speaker)
@@ -611,7 +611,6 @@ class Resolver:
             ]
         if not displays:
             return self._failure("NO_MATCH", "No matching caption overlay.", "current")
-        display_ranges_by_overlay: dict[str, list[tuple[int, int]]] = {}
         options: list[ResolutionOption] = []
         for i, display in enumerate(displays):
             ranges = (
@@ -619,7 +618,6 @@ class Resolver:
                 if display["start_out_f"] is not None and display["end_out_f"] is not None
                 else []
             )
-            display_ranges_by_overlay[display["overlay_id"]] = ranges
             options.append(
                 ResolutionOption(
                     choice=i + 1,
@@ -630,9 +628,6 @@ class Resolver:
                     overlay_id=display["overlay_id"],
                 )
             )
-        display_ranges = list(display_ranges_by_overlay.values())
-        original_ranges = [rng for group in display_ranges for rng in group]
-        note = self._note("current", "caption display times", original_ranges)
         if len(options) > 1 and target.choice is None:
             caption_note = self._ambiguous_note("caption display times", options)
             return Resolution(

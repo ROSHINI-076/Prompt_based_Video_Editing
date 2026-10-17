@@ -73,7 +73,6 @@ def transcript() -> Transcript:
 
     # First 'pricing' mention at 65 s
     words.append(_make_word(idx, "pricing", t))
-    pricing1_idx = idx
     idx += 1
     t += 0.5
     words.append(_make_word(idx, "plan", t))
@@ -88,7 +87,6 @@ def transcript() -> Transcript:
 
     # Second 'pricing' mention at 160 s
     words.append(_make_word(idx, "pricing", t))
-    pricing2_idx = idx
     idx += 1
     t += 0.5
     words.append(_make_word(idx, "model", t))
@@ -128,7 +126,6 @@ def transcript() -> Transcript:
 @pytest.fixture
 def welcome_word_ids(transcript: Transcript) -> tuple[str, str]:
     """Return (start_word_id, end_word_id) for 'welcome to the channel'."""
-    texts = [w.text for w in transcript.words]
     # find 'welcome' around 42 s
     for i, w in enumerate(transcript.words):
         if w.text == "welcome" and abs(w.start_s - 42.0) < 0.6:

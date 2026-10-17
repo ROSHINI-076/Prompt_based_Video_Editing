@@ -6,7 +6,7 @@ up:
 down:
 	docker compose down
 
-test:
+test: lint
 	python -m pytest tests/ -v --tb=short
 
 lint:

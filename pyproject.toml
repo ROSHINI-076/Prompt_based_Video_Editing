@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "incubrix"
 version = "0.1.0"
 description = "IncuBrix Prompt-Based Video Editing Engine"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.115.6",
     "uvicorn[standard]==0.34.0",
@@ -47,6 +47,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["UP042"]  # Preserve str(), compatibility without requiring enum.StrEnum.
 
 [tool.mypy]
 python_version = "3.11"
@@ -56,5 +57,4 @@ warn_unused_configs = true
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["incubrix*"]
-
 

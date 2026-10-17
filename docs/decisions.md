@@ -88,3 +88,13 @@ making the response layer responsible for deciding how to present a resolution s
 **Context:** Replaying the same current-time cut, keep-only, or speed target after an edit addresses different source content because the edited timeline has shifted.
 **Decision:** When a destructive time target in current time exactly matches the target stored with the most recent active edit, ask for explicit confirmation and show the current-to-original conversion. A yes creates a new edit against the current timeline; a no rejects with `NO_CHANGE`. Exact repeats in original time, and phrase repeats whose target was already removed, remain `NO_CHANGE`.
 **Rationale:** Current-time operations are interpreted where the creator is now looking, but applying an identical destructive request twice without confirmation would silently affect different content. Original-time and phrase targets remain content-anchored and do not silently shift.
+
+## D008: Keep string enums compatible without `enum.StrEnum`
+
+**Date:** 2026-10-17
+**Context:** Ruff's UP042 recommends replacing classes that inherit from both `str` and
+`enum.Enum` with `enum.StrEnum`. That requires Python 3.11 and changes how `str()` behaves.
+**Decision:** Keep `OverlayStatus` and `EffectType` as `str, enum.Enum` classes and ignore UP042.
+The package's declared minimum Python version is 3.11, consistent with the runtime configuration.
+**Rationale:** Preserving the existing string conversion behavior is preferable to applying an
+automatic enum migration solely to satisfy this lint rule.

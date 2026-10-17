@@ -648,7 +648,9 @@ def test_reorder_phrase_reports_no_match_and_handles_snapped_boundary_cut():
 
 
 def test_embedder_hook_can_add_a_sentence_match():
-    sentence_embedder = lambda query, sentence: 0.9 if "hello there" in sentence else 0.0
+    def sentence_embedder(query: str, sentence: str) -> float:
+        return 0.9 if "hello there" in sentence else 0.0
+
     result = _resolver(embedder=sentence_embedder).resolve_topic(TopicTarget(query="salutations"))
 
     assert result.status == "RESOLVED"

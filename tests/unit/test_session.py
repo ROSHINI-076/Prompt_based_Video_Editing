@@ -110,7 +110,6 @@ class TestUndoRedo:
         mgr.push_edit("cut 1", [CutOp(ranges=[(0, 30)])])
         mgr.push_edit("cut 2", [CutOp(ranges=[(60, 90)])])
         mgr.push_edit("cut 3", [CutOp(ranges=[(120, 150)])])
-        duration = mgr.get_duration_frames()
         mgr.undo()  # undo cut 3
         assert len(mgr.state.stack) == 2
         mgr.undo()  # undo cut 2

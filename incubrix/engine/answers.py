@@ -1223,7 +1223,9 @@ def answer(session: SessionManager, answer_text: str) -> dict:
                 "needs_clarification",
                 question=pending["question"],
                 options=copy.deepcopy(pending["options"]),
-                summary="Please answer yes to repeat the edit or no to leave the timeline unchanged.",
+                summary=(
+                    "Please answer yes to repeat the edit or no to leave the timeline unchanged."
+                ),
                 time_policy="current",
             )
         session.state.pending_question = None
@@ -1261,7 +1263,9 @@ def answer(session: SessionManager, answer_text: str) -> dict:
             "needs_clarification",
             question=_clarification_question(intent, resolution),
             options=[_option_dict(option) for option in resolution.options],
-            summary="That answer did not identify an option. Please choose one of the listed options.",
+            summary=(
+                "That answer did not identify an option. Please choose one of the listed options."
+            ),
             time_policy=_time_policy(saved_ops),
         )
     saved_ops = copy.deepcopy(pending["intent_ops"])

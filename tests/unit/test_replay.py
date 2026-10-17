@@ -245,7 +245,6 @@ class TestRestoreSemantics:
         cut_edit = _edit("e1", "cut first 3s", CutOp(ranges=[(0, 90)]))
         restore_edit = _edit("e2", "restore e1", RestoreOp(target_edit_id="e1"))
 
-        tl_with_cut = replay(src, [cut_edit], _transcript())
         tl_restored = replay(src, [cut_edit, restore_edit], _transcript())
 
         # Duration should be back to original
