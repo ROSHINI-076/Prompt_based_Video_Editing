@@ -1,1 +1,171 @@
-{}
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IncuBrix Timeline",
+  "description": "The derived state of a video after all active edits. Always produced by replay(source, stack). Never stored or mutated directly.",
+  "type": "object",
+  "required": ["source", "segments"],
+  "properties": {
+    "source": {
+      "description": "Immutable metadata about the original source video.",
+      "type": "object",
+      "required": ["sha256", "duration_frames", "fps", "has_audio"],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "description": "SHA-256 hex digest of the original source file. Never changes."
+        },
+        "duration_frames": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total duration of the source in integer frames."
+        },
+        "fps": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Frames per second (normalised constant FPS stored at intake)."
+        },
+        "has_audio": {
+          "type": "boolean",
+          "description": "Whether the source has an audio track."
+        }
+      },
+      "additionalProperties": false
+    },
+    "segments": {
+      "description": "Ordered list of source ranges to play, in output order. Defines the final edit.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["src_in_f", "src_out_f", "speed"],
+        "properties": {
+          "src_in_f": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "First source frame (inclusive) of this segment."
+          },
+          "src_out_f": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "First source frame after this segment (exclusive). src_out_f > src_in_f."
+          },
+          "speed": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Playback speed multiplier. 1.0 = normal, 2.0 = 2x fast, 0.5 = slow motion. Output length = max(1, round((src_out_f - src_in_f) / speed)) frames."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "overlays": {
+      "description": "Caption/text overlays. Each is anchored to word IDs, never to output timestamps.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "text", "style", "anchor", "status", "original_word_count"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique overlay ID (e.g. 'ov1', 'ov2')."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["caption"],
+            "description": "Overlay type. Currently only 'caption'."
+          },
+          "text": {
+            "type": "string",
+            "description": "Display text of the caption."
+          },
+          "style": {
+            "type": "object",
+            "description": "Style properties (color, size, font, position, etc.).",
+            "additionalProperties": true
+          },
+          "anchor": {
+            "type": "object",
+            "required": ["start_word_id", "end_word_id"],
+            "description": "Word ID anchor. Display time is COMPUTED from alive anchor words — never stored here.",
+            "properties": {
+              "start_word_id": {
+                "type": "string",
+                "description": "ID of the first anchor word (e.g. 'w0001')."
+              },
+              "end_word_id": {
+                "type": "string",
+                "description": "ID of the last anchor word (inclusive)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "dormant", "partial"],
+            "description": "active: all anchor words alive. dormant: all anchor words cut (revives on restore). partial: some anchor words cut."
+          },
+          "original_word_count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Number of words in the anchor range at creation time. Used for partial-cut tracking."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "effects": {
+      "description": "Audio effects (mute/bleep) anchored to word IDs.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "anchor"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique effect ID."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["mute", "bleep"],
+            "description": "mute: silence the audio. bleep: replace with a sine tone."
+          },
+          "anchor": {
+            "type": "object",
+            "required": ["start_word_id", "end_word_id"],
+            "properties": {
+              "start_word_id": { "type": "string" },
+              "end_word_id": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "music": {
+      "description": "Background music settings.",
+      "type": "object",
+      "required": ["track", "duck_db", "enabled"],
+      "properties": {
+        "track": {
+          "type": "string",
+          "description": "Filename or S3 key of the music track."
+        },
+        "duck_db": {
+          "type": "number",
+          "description": "Ducking level in dBFS when speech is detected (e.g. -12.0)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether background music is active."
+        }
+      },
+      "additionalProperties": false
+    },
+    "warnings": {
+      "description": "Human-readable warnings generated during replay (e.g. dormant caption, speed overlap). Excluded from timeline_hash.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

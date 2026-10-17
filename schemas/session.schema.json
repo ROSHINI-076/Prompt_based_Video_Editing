@@ -1,1 +1,100 @@
-{}
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IncuBrix Session",
+  "description": "Persistent session state: source info, transcript, and the ordered edit history. The current timeline is always derived by replay(source, stack) and is never stored here.",
+  "type": "object",
+  "required": ["source", "transcript", "stack", "redo", "edit_counter"],
+  "properties": {
+    "source": {
+      "description": "Immutable source video metadata (see timeline.schema.json#/properties/source).",
+      "type": "object",
+      "required": ["sha256", "duration_frames", "fps", "has_audio"],
+      "properties": {
+        "sha256": { "type": "string" },
+        "duration_frames": { "type": "integer", "minimum": 1 },
+        "fps": { "type": "number", "exclusiveMinimum": 0 },
+        "has_audio": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "transcript": {
+      "description": "The full transcript (see transcript.schema.json).",
+      "$ref": "transcript.schema.json"
+    },
+    "stack": {
+      "description": "Ordered list of applied edits. The timeline is replay(source, stack). One instruction = one Edit = one undo step.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/edit" }
+    },
+    "redo": {
+      "description": "Edits popped by undo that can be re-applied. Cleared whenever a new edit is pushed.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/edit" }
+    },
+    "edit_counter": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic counter used to generate edit IDs ('e1', 'e2', ...). Increments before use. Never reset, so IDs are never reused."
+    },
+    "pending_question": {
+      "description": "If the last instruction returned needs_clarification, this stores the question and options awaiting a reply.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["question", "options", "partial_ops"],
+          "properties": {
+            "question": { "type": "string" },
+            "options": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "partial_ops": {
+              "type": "array",
+              "description": "Resolved ops that are valid and will be applied once the question is answered."
+            }
+          }
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "edit": {
+      "type": "object",
+      "required": ["id", "instruction", "ops"],
+      "description": "One instruction = one Edit containing resolved, source-anchored ops.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^e[0-9]+$",
+          "description": "Monotonic edit ID ('e1', 'e2', ...). Never reused."
+        },
+        "instruction": {
+          "type": "string",
+          "description": "The original plain-language instruction from the creator."
+        },
+        "ops": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Resolved, source-anchored operations. All positions are source frames or word IDs.",
+          "items": {
+            "type": "object",
+            "required": ["op"],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "cut", "keep_only", "speed", "reorder",
+                  "add_caption", "style", "mute", "bleep",
+                  "restore", "music"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

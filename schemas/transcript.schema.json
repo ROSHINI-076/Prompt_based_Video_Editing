@@ -1,1 +1,93 @@
-{}
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IncuBrix Transcript",
+  "description": "Full transcript produced by the STT adapter, with deterministic word IDs.",
+  "type": "object",
+  "required": ["words"],
+  "properties": {
+    "words": {
+      "description": "Ordered list of words from the transcript.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "start_s", "end_s"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^w[0-9]{4,}$",
+            "description": "Deterministic, index-based word ID: 'w0001', 'w0002', ... Never changes for this source."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The spoken word text (lowercased, de-punctuated by the STT adapter)."
+          },
+          "start_s": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Word start time in seconds (from the source video)."
+          },
+          "end_s": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Word end time in seconds (from the source video). end_s > start_s."
+          },
+          "speaker": {
+            "type": "string",
+            "default": "default",
+            "description": "Speaker label (from diarization). 'default' when diarization is unavailable."
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 1.0,
+            "description": "STT confidence score. Words below LOW_CONFIDENCE_THRESHOLD are flagged."
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["low_confidence", "filler", "uncertain_boundary"]
+            },
+            "description": "Flags set by the STT adapter or engine.",
+            "default": []
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sentences": {
+      "description": "Sentence boundaries defined by inclusive word indices.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["first_word_idx", "last_word_idx"],
+        "properties": {
+          "first_word_idx": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Zero-based index into words[] of the first word in this sentence."
+          },
+          "last_word_idx": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Zero-based index into words[] of the last word in this sentence (inclusive)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "speakers": {
+      "description": "Ordered list of unique speaker labels present in this transcript.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "warnings": {
+      "description": "Warnings from the STT adapter (e.g. low overall confidence, VFR normalisation).",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}
