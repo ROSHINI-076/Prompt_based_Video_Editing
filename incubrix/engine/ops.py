@@ -15,6 +15,8 @@ Rules implemented here:
 
 from __future__ import annotations
 
+import re
+
 from incubrix.engine.models import (
     Anchor,
     Effect,
@@ -26,6 +28,61 @@ from incubrix.engine.models import (
     Transcript,
 )
 from incubrix.engine.timeline import is_word_alive
+
+ALWAYS_FILLER_WORDS = frozenset({"um", "uh", "erm", "er", "ah", "hmm"})
+LIKE_PREVIOUS_WORD_EXCLUSIONS = frozenset(
+    {
+        "i",
+        "you",
+        "we",
+        "they",
+        "would",
+        "looks",
+        "look",
+        "feels",
+        "feel",
+        "sounds",
+        "sound",
+        "don't",
+        "didn't",
+        "doesn't",
+        "not",
+        "just",
+        "and",
+        "or",
+    }
+)
+LIKE_PAUSE_THRESHOLD_S = 0.25
+MIN_SILENCE_PAD_S = 0.15
+AUTO_CAPTION_MAX_WORDS = 8
+
+
+def _normalized_word(text: str) -> str:
+    """Return the first word token without surrounding punctuation."""
+    match = re.search(r"[a-z0-9']+", text.casefold())
+    return match.group(0) if match else ""
+
+
+def is_filler_word(index: int, transcript: Transcript) -> bool:
+    """Apply the explicit always-filler and contextual 'like' rules."""
+    word = transcript.words[index]
+    token = _normalized_word(word.text)
+    if token in ALWAYS_FILLER_WORDS:
+        return True
+    if token != "like":
+        return False
+
+    has_comma = word.text.rstrip().endswith(",")
+    gap_before = word.start_s - transcript.words[index - 1].end_s if index > 0 else 0.0
+    gap_after = (
+        transcript.words[index + 1].start_s - word.end_s
+        if index + 1 < len(transcript.words)
+        else 0.0
+    )
+    has_pause = max(gap_before, gap_after) >= LIKE_PAUSE_THRESHOLD_S
+    previous = _normalized_word(transcript.words[index - 1].text) if index > 0 else ""
+    return (has_comma or has_pause) and previous not in LIKE_PREVIOUS_WORD_EXCLUSIONS
+
 
 # ── Internal segment-splitting helper ────────────────────────────
 
@@ -374,6 +431,17 @@ def apply_music(
     track: str,
     duck_db: float,
     enabled: bool,
+    duck_when: str = "speech",
 ) -> tuple[MusicSettings, list[str]]:
     """Update background music settings."""
-    return MusicSettings(track=track, duck_db=duck_db, enabled=enabled), []
+    return (
+        MusicSettings(track_id=track, duck_db=duck_db, enabled=enabled, duck_when=duck_when),
+        [],
+    )
+
+
+def apply_keep_pause(protected_after_word_ids: list[str], after_word_id: str) -> list[str]:
+    """Add an anchored pause protection without duplicating existing markers."""
+    if after_word_id in protected_after_word_ids:
+        return list(protected_after_word_ids)
+    return [*protected_after_word_ids, after_word_id]

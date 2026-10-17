@@ -23,7 +23,11 @@ from incubrix.engine.models import (
     CutOp,
     Edit,
     KeepOnlyOp,
+    KeepPauseOp,
+    MusicOp,
     MuteOp,
+    RemoveFillersOp,
+    RemoveSilenceOp,
     ReorderOp,
     RestoreOp,
     SpeedOp,
@@ -31,6 +35,7 @@ from incubrix.engine.models import (
     Transcript,
     Word,
 )
+from incubrix.engine.ops import AUTO_CAPTION_MAX_WORDS, MIN_SILENCE_PAD_S
 from incubrix.engine.resolver import (
     CaptionTarget,
     PhraseTarget,
@@ -47,6 +52,7 @@ from incubrix.engine.timeline import is_word_alive, timeline_to_output
 MIN_SPEED = 0.25
 MAX_SPEED = 4.0
 LOW_CONFIDENCE_THRESHOLD = 0.6
+ALLOWED_MUSIC_TRACK_IDS = frozenset({"bundled_default"})
 
 
 class _InputError(Exception):
@@ -195,7 +201,7 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
                 policy=policy,
             )
         )
-    if kind == "phrase":
+    if kind in ("phrase", "word"):
         relation = target.get("relation", "at")
         if relation not in ("at", "before", "after"):
             raise _InputError("INVALID_ARGUMENT", f"Unsupported phrase relation: {relation!r}.")
@@ -352,12 +358,40 @@ def _as_float(value: Any, label: str, *, error_code: str = "INVALID_ARGUMENT") -
     return number
 
 
+def _active_intent(
+    resolver: Resolver,
+    name: str,
+    matches: Any = None,
+) -> tuple[Edit, Mapping] | None:
+    """Find the latest active edit carrying a matching parsed intent."""
+    active_ids = resolver._active_edit_ids()
+    for edit in reversed(resolver.edits):
+        if edit.id not in active_ids:
+            continue
+        for intent in reversed(edit.intent_ops):
+            if intent.get("op") == name and (matches is None or matches(intent)):
+                return edit, intent
+    return None
+
+
+def _active_music_edit(resolver: Resolver) -> Edit | None:
+    """Find the active music edit that supplies the current track setting."""
+    active_ids = resolver._active_edit_ids()
+    current_track = resolver.timeline.music.track_id
+    for edit in reversed(resolver.edits):
+        if edit.id in active_ids and any(
+            isinstance(op, MusicOp) and op.track_id == current_track for op in edit.ops
+        ):
+            return edit
+    return None
+
+
 def _resolve_part(
     op: Mapping,
     resolver: Resolver,
     edit_id: str,
     part_index: int,
-) -> tuple[list[AnyOp], Resolution | None, str, str | None]:
+) -> tuple[list[AnyOp], Resolution | None, str, str | None, list[str], str | None]:
     raw_name = op.get("op")
     if not isinstance(raw_name, str) or not raw_name.strip():
         raise _InputError("INVALID_ARGUMENT", "An operation requires a non-empty name.")
@@ -372,9 +406,166 @@ def _resolve_part(
         "mute",
         "bleep",
         "restore",
+        "remove_fillers",
+        "remove_silence",
+        "keep_pause",
+        "auto_caption",
+        "add_music",
     }
     if name not in supported:
         raise _InputError("UNSUPPORTED_OPERATION", f"Unsupported instruction operation: {name!r}.")
+
+    if name == "remove_fillers":
+        if _active_intent(resolver, name):
+            raise _InputError("NO_CHANGE", "Filler words were already removed.")
+        resolved = resolver.resolve_fillers()
+        if resolved.status != "RESOLVED":
+            return [], resolved, "", name, resolved.warnings, None
+        removed_count = len(resolved.word_ids)
+        plural = "" if removed_count == 1 else "s"
+        return (
+            [RemoveFillersOp(ranges=resolved.source_ranges, word_ids=resolved.word_ids)],
+            None,
+            "",
+            name,
+            resolved.warnings,
+            f"Removed {removed_count} filler word{plural}.",
+        )
+
+    if name == "remove_silence":
+        min_gap_s = _as_float(op.get("min_gap_s"), "Minimum silence gap")
+        if min_gap_s < 0:
+            raise _InputError("INVALID_ARGUMENT", "Minimum silence gap cannot be negative.")
+        repeated = _active_intent(
+            resolver,
+            name,
+            lambda prior: prior.get("min_gap_s") == min_gap_s,
+        )
+        if repeated:
+            raise _InputError("NO_CHANGE", "Silence gaps were already removed at this threshold.")
+        resolved = resolver.resolve_silence(min_gap_s, MIN_SILENCE_PAD_S)
+        if resolved.status != "RESOLVED":
+            return [], resolved, "", name, resolved.warnings, None
+        gap_count = len(resolved.source_ranges)
+        plural = "" if gap_count == 1 else "s"
+        return (
+            [
+                RemoveSilenceOp(
+                    ranges=resolved.source_ranges,
+                    min_gap_s=min_gap_s,
+                    protected_after_word_ids=list(resolver.timeline.protected_pause_after_word_ids),
+                )
+            ],
+            None,
+            "",
+            name,
+            resolved.warnings,
+            f"Removed {gap_count} silence gap{plural} longer than {min_gap_s:g}s.",
+        )
+
+    if name == "keep_pause":
+        resolved, ambiguous_path = _active_target_path(op, resolver)
+        if resolved.status != "RESOLVED":
+            return [], resolved, ambiguous_path, name, [], None
+        groups = _word_groups(resolved.word_ids, resolver.transcript)
+        if not groups:
+            raise _InputError("NO_MATCH", "No alive phrase or word anchors a pause.")
+        pause_ops = [KeepPauseOp(after_word_id=group[-1].id) for group in groups]
+        words_by_id = {word.id: word for word in resolver.transcript.words}
+        labels = [
+            f"'{words_by_id[pause.after_word_id].text.strip('.,!?;:')}'" for pause in pause_ops
+        ]
+        summary = f"Protected pause after {', '.join(labels)}."
+        return pause_ops, None, "", name, [], summary
+
+    if name == "auto_caption":
+        max_words = op.get("max_words", AUTO_CAPTION_MAX_WORDS)
+        if isinstance(max_words, bool) or not isinstance(max_words, int) or max_words < 1:
+            raise _InputError(
+                "INVALID_ARGUMENT", "Auto-caption max_words must be a positive integer."
+            )
+        if _active_intent(
+            resolver,
+            name,
+            lambda prior: prior.get("max_words", AUTO_CAPTION_MAX_WORDS) == max_words,
+        ):
+            raise _InputError("NO_CHANGE", "The transcript is already auto-captioned this way.")
+        captions = []
+        for sentence_index, (first, last) in enumerate(resolver._sentences()):
+            alive = [
+                resolver.transcript.words[index]
+                for index in range(first, last + 1)
+                if is_word_alive(
+                    resolver.transcript.words[index],
+                    resolver.timeline.segments,
+                    resolver.fps,
+                )
+            ]
+            for group_index, group in enumerate(
+                _word_groups([word.id for word in alive], resolver.transcript)
+            ):
+                for chunk_index in range(0, len(group), max_words):
+                    chunk = group[chunk_index : chunk_index + max_words]
+                    captions.append(
+                        AddCaptionOp(
+                            overlay_id=(
+                                f"{edit_id}_auto_{part_index + 1}_"
+                                f"{sentence_index + 1}_{group_index + 1}_"
+                                f"{chunk_index // max_words + 1}"
+                            ),
+                            text=" ".join(word.text for word in chunk),
+                            start_word_id=chunk[0].id,
+                            end_word_id=chunk[-1].id,
+                        )
+                    )
+        if not captions:
+            raise _InputError("NO_MATCH", "No alive transcript words are available to caption.")
+        plural = "" if len(captions) == 1 else "s"
+        return (
+            captions,
+            None,
+            "",
+            name,
+            [],
+            f"Added {len(captions)} auto-caption{plural}.",
+        )
+
+    if name == "add_music":
+        track_id = op.get("track_id")
+        if not isinstance(track_id, str) or track_id not in ALLOWED_MUSIC_TRACK_IDS:
+            raise _InputError(
+                "NO_TARGET",
+                f"Music track {track_id!r} is not in the configured allow-list.",
+                {"allowed_track_ids": sorted(ALLOWED_MUSIC_TRACK_IDS)},
+            )
+        duck_db = _as_float(op.get("duck_db", -12.0), "Music duck_db")
+        duck_when = op.get("duck_when", "speech")
+        if duck_when != "speech":
+            raise _InputError("INVALID_ARGUMENT", "Music duck_when must be 'speech'.")
+        replace = op.get("replace", False)
+        if not isinstance(replace, bool):
+            raise _InputError("INVALID_ARGUMENT", "Music replace must be a boolean.")
+        if resolver.timeline.music.enabled and not replace:
+            existing = _active_music_edit(resolver)
+            existing_ref = (
+                f"edit {existing.id} ('{existing.instruction}')"
+                if existing is not None
+                else f"track '{resolver.timeline.music.track_id}'"
+            )
+            raise _InputError(
+                "EDIT_CONFLICT",
+                f"Music is already set by {existing_ref}; request replace to change it.",
+                {"conflicting_edit_id": existing.id if existing is not None else None},
+            )
+        return (
+            [MusicOp(track_id=track_id, duck_db=duck_db, duck_when=duck_when)],
+            None,
+            "",
+            name,
+            [],
+            f"Added music track '{track_id}' ducked under speech.",
+        )
+
     speed_factor = 0.0
     if name == "speed":
         speed_factor = _as_float(op.get("factor"), "Speed factor", error_code="INVALID_SPEED")
@@ -400,18 +591,18 @@ def _resolve_part(
             )
     resolved, ambiguous_path = _active_target_path(op, resolver)
     if resolved.status != "RESOLVED":
-        return [], resolved, ambiguous_path, name
+        return [], resolved, ambiguous_path, name, [], None
 
     if name == "cut":
         if not resolved.source_ranges:
             raise _InputError("NO_MATCH", "The cut target has no source range.")
-        return [CutOp(ranges=resolved.source_ranges)], None, "", name
+        return [CutOp(ranges=resolved.source_ranges)], None, "", name, [], None
     if name == "keep_only":
         if len(resolved.source_ranges) != 1:
             raise _InputError(
                 "INVALID_ARGUMENT", "Keep-only must resolve to exactly one continuous range."
             )
-        return [KeepOnlyOp(range=resolved.source_ranges[0])], None, "", name
+        return [KeepOnlyOp(range=resolved.source_ranges[0])], None, "", name, [], None
     if name == "speed":
         if not resolved.source_ranges:
             raise _InputError("NO_MATCH", "The speed target has no surviving source range.")
@@ -423,6 +614,8 @@ def _resolve_part(
             None,
             "",
             name,
+            [],
+            None,
         )
     if name == "reorder":
         source_result = _target_resolution(op.get("target"), resolver)
@@ -433,7 +626,14 @@ def _resolve_part(
             )
         destination = resolved.destination_frame
         assert destination is not None
-        return [ReorderOp(range=source_result.source_ranges[0], before=destination)], None, "", name
+        return (
+            [ReorderOp(range=source_result.source_ranges[0], before=destination)],
+            None,
+            "",
+            name,
+            [],
+            None,
+        )
     if name == "add_caption":
         text = op.get("text")
         assert isinstance(text, str)
@@ -455,7 +655,7 @@ def _resolve_part(
                     style=dict(op.get("style", {})),
                 )
             )
-        return caption_ops, None, "", name
+        return caption_ops, None, "", name, [], None
     if name == "style":
         style = op.get("style")
         assert resolved.overlay_ids
@@ -467,6 +667,8 @@ def _resolve_part(
             None,
             "",
             name,
+            [],
+            None,
         )
     if name in ("mute", "bleep"):
         word_ids = resolved.word_ids or _words_for_ranges(
@@ -486,7 +688,7 @@ def _resolve_part(
                     end_word_id=group[-1].id,
                 )
             )
-        return effects, None, "", name
+        return effects, None, "", name, [], None
     if name == "restore":
         assert resolved.edit_ids
         return (
@@ -494,6 +696,8 @@ def _resolve_part(
             None,
             "",
             name,
+            [],
+            None,
         )
 
 
@@ -615,6 +819,28 @@ def _format_operation(op: AnyOp, fps: float) -> dict:
         }
     if isinstance(op, RestoreOp):
         return {"op": "restore", "target_edit_id": op.target_edit_id}
+    if isinstance(op, RemoveFillersOp):
+        return {
+            "op": "remove_fillers",
+            "ranges": [range_seconds(item) for item in op.ranges],
+            "word_ids": list(op.word_ids),
+        }
+    if isinstance(op, RemoveSilenceOp):
+        return {
+            "op": "remove_silence",
+            "ranges": [range_seconds(item) for item in op.ranges],
+            "min_gap_s": op.min_gap_s,
+            "protected_after_word_ids": list(op.protected_after_word_ids),
+        }
+    if isinstance(op, KeepPauseOp):
+        return {"op": "keep_pause", "after_word_id": op.after_word_id}
+    if isinstance(op, MusicOp):
+        return {
+            "op": "music",
+            "track_id": op.track_id,
+            "duck_db": op.duck_db,
+            "duck_when": op.duck_when,
+        }
     raise TypeError(f"Unsupported resolved operation type: {type(op).__name__}")
 
 
@@ -976,6 +1202,7 @@ def handle_instruction(
     resolved_ops: list[AnyOp] = []
     applied_intents: list[dict[str, Any]] = []
     resolution_notes: list[str] = []
+    operation_summaries: list[str] = []
     warnings: list[str] = []
     first_error: tuple[str, str, Any] | None = None
     resolver: Resolver
@@ -990,12 +1217,19 @@ def handle_instruction(
             resolver_edits,
         )
         try:
-            part_ops, unresolved, ambiguous_path, operation_name = _resolve_part(
-                intent, resolver, edit_id, part_index
-            )
+            (
+                part_ops,
+                unresolved,
+                ambiguous_path,
+                operation_name,
+                part_warnings,
+                part_summary,
+            ) = _resolve_part(intent, resolver, edit_id, part_index)
         except _InputError as exc:
             try:
-                resolution_notes.append(resolver_note(intent, resolver))
+                note = resolver_note(intent, resolver)
+                if note:
+                    resolution_notes.append(note)
             except _InputError:
                 pass
             operation_name = intent.get("op", "operation")
@@ -1008,8 +1242,10 @@ def handle_instruction(
                 first_error = (code, str(exc), exc.details)
             continue
 
+        warnings.extend(part_warnings)
         if unresolved is not None:
-            resolution_notes.append(unresolved.note)
+            if unresolved.note:
+                resolution_notes.append(unresolved.note)
             if unresolved.status == "AMBIGUOUS":
                 question = _clarification_question(intent, unresolved)
                 options = [_option_dict(option) for option in unresolved.options]
@@ -1054,7 +1290,9 @@ def handle_instruction(
             if first_error is None:
                 first_error = (code, message, details)
             continue
-        resolution_notes.append(resolver_note(intent, resolver))
+        note = resolver_note(intent, resolver)
+        if note:
+            resolution_notes.append(note)
 
         assert part_ops
         previous_hash = preview.get_timeline_hash()
@@ -1129,6 +1367,8 @@ def handle_instruction(
             continue
         resolved_ops = candidate_ops
         applied_intents.append(copy.deepcopy(intent))
+        if part_summary:
+            operation_summaries.append(part_summary)
 
     if not resolved_ops:
         assert first_error is not None
@@ -1155,6 +1395,7 @@ def handle_instruction(
     summary_parts.extend(
         _caption_summary(baseline_timeline, final_timeline, session.state.transcript)
     )
+    summary_parts.extend(operation_summaries)
     new_timeline_warnings = _new_timeline_warnings(baseline_warnings, final_timeline.warnings)
     overlap_notes = [
         warning for warning in new_timeline_warnings if warning.startswith("Speed overlap:")
@@ -1199,6 +1440,13 @@ def _id_in_word_interval(word_id: str, start_id: str, end_id: str, transcript: T
 
 def resolver_note(intent: Mapping, resolver: Resolver) -> str:
     """Re-resolve a successful target to retain the resolver's policy note."""
+    if intent.get("op") in {
+        "remove_fillers",
+        "remove_silence",
+        "auto_caption",
+        "add_music",
+    }:
+        return ""
     source_note = _target_resolution(intent.get("target"), resolver).note
     if intent.get("op") != "reorder":
         return source_note

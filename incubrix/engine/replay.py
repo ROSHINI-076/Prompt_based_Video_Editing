@@ -20,9 +20,11 @@ from incubrix.engine.models import (
     CutOp,
     Edit,
     KeepOnlyOp,
+    KeepPauseOp,
     MusicOp,
-    MusicSettings,
     MuteOp,
+    RemoveFillersOp,
+    RemoveSilenceOp,
     ReorderOp,
     RestoreOp,
     SourceInfo,
@@ -36,6 +38,8 @@ from incubrix.engine.ops import (
     apply_bleep,
     apply_cut,
     apply_keep_only,
+    apply_keep_pause,
+    apply_music,
     apply_mute,
     apply_reorder,
     apply_speed,
@@ -93,6 +97,17 @@ def replay(
 
         for op in edit.ops:
             if isinstance(op, CutOp):
+                tl.segments, tl.overlays, tl.effects, warnings = apply_cut(
+                    tl.segments,
+                    tl.overlays,
+                    tl.effects,
+                    op.ranges,
+                    transcript,
+                    fps,
+                )
+                tl.warnings.extend(warnings)
+
+            elif isinstance(op, RemoveFillersOp | RemoveSilenceOp):
                 tl.segments, tl.overlays, tl.effects, warnings = apply_cut(
                     tl.segments,
                     tl.overlays,
@@ -161,7 +176,19 @@ def replay(
                 tl.warnings.extend(warnings)
 
             elif isinstance(op, MusicOp):
-                tl.music = MusicSettings(track=op.track, duck_db=op.duck_db, enabled=op.enabled)
+                tl.music, _ = apply_music(
+                    tl.music,
+                    op.track_id,
+                    op.duck_db,
+                    op.enabled,
+                    op.duck_when,
+                )
+
+            elif isinstance(op, KeepPauseOp):
+                tl.protected_pause_after_word_ids = apply_keep_pause(
+                    tl.protected_pause_after_word_ids,
+                    op.after_word_id,
+                )
 
             # RestoreOp: handled by the disabled set above; no action here
 

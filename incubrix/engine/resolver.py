@@ -10,13 +10,14 @@ from typing import Literal
 from incubrix.engine.models import (
     CutOp,
     Edit,
+    EffectType,
     KeepOnlyOp,
     RestoreOp,
     Segment,
     Timeline,
     Transcript,
 )
-from incubrix.engine.ops import snap_to_silence
+from incubrix.engine.ops import is_filler_word, snap_to_silence
 from incubrix.engine.timeline import (
     Layout,
     is_word_alive,
@@ -116,6 +117,7 @@ class Resolution:
     error_code: str | None = None
     detail: str | None = None
     clamped: bool = False
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -232,6 +234,129 @@ class Resolver:
 
     def _source_ranges_for_current(self, start_f: int, end_f: int) -> list[tuple[int, int]]:
         return self.layout.out_range_to_src_ranges(start_f, end_f)
+
+    def resolve_fillers(self) -> Resolution:
+        """Resolve alive filler words to snapped cut ranges, skipping effected words."""
+        word_index = {word.id: index for index, word in enumerate(self.transcript.words)}
+        effects = [
+            (
+                min(word_index[effect.anchor.start_word_id], word_index[effect.anchor.end_word_id]),
+                max(word_index[effect.anchor.start_word_id], word_index[effect.anchor.end_word_id]),
+                effect.type,
+            )
+            for effect in self.timeline.effects
+            if effect.anchor.start_word_id in word_index and effect.anchor.end_word_id in word_index
+        ]
+        filler_indices = [
+            index
+            for index, word in enumerate(self.transcript.words)
+            if is_word_alive(word, self.timeline.segments, self.fps)
+            and is_filler_word(index, self.transcript)
+        ]
+        if not filler_indices:
+            return Resolution(
+                status="NO_MATCH",
+                error_code="NO_MATCH",
+                note=self._note("current", "filler words"),
+                detail="No filler words found.",
+            )
+
+        cut_indices = []
+        warnings = []
+        for index in filler_indices:
+            effect_types = {
+                effect_type for start, end, effect_type in effects if start <= index <= end
+            }
+            if effect_types:
+                word = self.transcript.words[index]
+                span = self.layout.word_out_span(word, self.fps)
+                output_s = span[0] / self.fps if span is not None else word.start_s
+                reason = "bleeped" if EffectType.BLEEP in effect_types else "muted"
+                warnings.append(
+                    f"kept '{word.text.strip('.,!?;:')}' at {_format_time(output_s)} "
+                    f"because it is {reason}"
+                )
+            else:
+                cut_indices.append(index)
+
+        if not cut_indices:
+            return Resolution(
+                status="NO_CHANGE",
+                error_code="NO_CHANGE",
+                note=self._note("current", "filler words"),
+                detail="All filler words are muted or bleeped; no fillers were removed.",
+                warnings=warnings,
+            )
+
+        ranges = sorted(
+            snap_to_silence(index, index, self.transcript, self.fps) for index in cut_indices
+        )
+        merged_ranges: list[tuple[int, int]] = []
+        for start, end in ranges:
+            if merged_ranges and start <= merged_ranges[-1][1]:
+                merged_ranges[-1] = (merged_ranges[-1][0], max(merged_ranges[-1][1], end))
+            else:
+                merged_ranges.append((start, end))
+        return Resolution(
+            status="RESOLVED",
+            source_ranges=merged_ranges,
+            word_ids=[self.transcript.words[index].id for index in cut_indices],
+            note=self._note("current", "filler words", merged_ranges),
+            warnings=warnings,
+        )
+
+    def resolve_silence(self, min_gap_s: float, pad_s: float) -> Resolution:
+        """Resolve long unprotected output gaps to source-frame removal ranges."""
+        spans = [
+            (index, self.layout.word_out_span(word, self.fps))
+            for index, word in enumerate(self.transcript.words)
+            if is_word_alive(word, self.timeline.segments, self.fps)
+        ]
+        spans = sorted(
+            ((index, span) for index, span in spans if span is not None),
+            key=lambda item: (item[1][0], item[0]),
+        )
+        protected = set(self.timeline.protected_pause_after_word_ids)
+        pad_frames = round(pad_s * self.fps)
+        ranges: list[tuple[int, int]] = []
+        protected_warnings: list[str] = []
+        for (previous_index, previous_span), (next_index, next_span) in zip(spans, spans[1:]):
+            gap_frames = next_span[0] - previous_span[1]
+            if gap_frames / self.fps <= min_gap_s:
+                continue
+            previous_word = self.transcript.words[previous_index]
+            if previous_word.id in protected:
+                protected_warnings.append(
+                    f"Protected pause after '{previous_word.text.strip('.,!?;:')}' "
+                    f"at {_format_time(previous_span[1] / self.fps)} was kept."
+                )
+                continue
+            cut_start = previous_span[1] + pad_frames
+            cut_end = next_span[0] - pad_frames
+            if cut_start < cut_end:
+                ranges.extend(self.layout.out_range_to_src_ranges(cut_start, cut_end))
+
+        if not ranges:
+            return Resolution(
+                status="NO_MATCH",
+                error_code="NO_MATCH",
+                note=self._note("current", f"silence gaps longer than {min_gap_s:g}s"),
+                detail=f"No unprotected silence gaps longer than {min_gap_s:g}s were found.",
+                warnings=protected_warnings,
+            )
+        ranges.sort()
+        merged_ranges: list[tuple[int, int]] = []
+        for start, end in ranges:
+            if merged_ranges and start <= merged_ranges[-1][1]:
+                merged_ranges[-1] = (merged_ranges[-1][0], max(merged_ranges[-1][1], end))
+            else:
+                merged_ranges.append((start, end))
+        return Resolution(
+            status="RESOLVED",
+            source_ranges=merged_ranges,
+            note=self._note("current", f"silence gaps longer than {min_gap_s:g}s", merged_ranges),
+            warnings=protected_warnings,
+        )
 
     def _resolve_time_bounds(self, target: TimeTarget) -> tuple[int, int, bool] | Resolution:
         policy = target.policy
@@ -698,16 +823,18 @@ class Resolver:
         return ranges
 
     def resolve_restore(self, target: RestoreTarget) -> Resolution:
-        """Find active cut/keep edits eligible for restoration."""
+        """Find active edits eligible for restoration."""
         active = self._active_edit_ids()
         candidates = [
             edit for edit in self.edits if edit.id in active and self._cut_ranges_for_edit(edit)
         ]
         if target.edit_id is not None:
-            candidates = [edit for edit in candidates if edit.id == target.edit_id]
+            candidates = [
+                edit for edit in self.edits if edit.id == target.edit_id and edit.id in active
+            ]
             if not candidates:
                 return self._failure(
-                    "NO_MATCH", f"No active cut/keep edit with id '{target.edit_id}'.", "original"
+                    "NO_MATCH", f"No active edit with id '{target.edit_id}'.", "original"
                 )
         elif target.overlap is not None:
             start_s, end_s = target.overlap
@@ -739,9 +866,7 @@ class Resolver:
             for i, edit in enumerate(candidates)
         ]
         if not options:
-            return self._failure(
-                "NO_MATCH", "No active cut/keep edits can be restored.", "original"
-            )
+            return self._failure("NO_MATCH", "No active edits can be restored.", "original")
         if len(options) > 1 and target.choice is None:
             note = self._ambiguous_note("restore candidate selection", options, "original")
             return Resolution(

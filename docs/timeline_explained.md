@@ -91,6 +91,26 @@ Caption times are computed at the output boundary, not stored on the overlay.
 the word anchors and current segments. This projection applies the 0.7-second
 minimum (capped at the timeline end), including after a speed change.
 
+## Filler, silence, auto-caption and music operations
+
+Filler removal resolves alive hesitation words to `snap_to_silence` source-frame
+ranges. "Like" is removed only when comma-punctuated or adjacent to a pause of at
+least 0.25 s, and its preceding normalized word is not one of the protected
+grammatical words listed in `docs/decisions.md`. Mute/bleeped filler words are
+kept and reported.
+
+Silence removal measures gaps between adjacent alive words in current output
+order, removes only gaps longer than the requested threshold, and leaves a
+0.15 s pad next to each word. `keep_pause` stores the word ID before the gap in
+the timeline; replay therefore preserves that pause in subsequent cleanup and
+the protection follows the word after reorder.
+
+Auto-caption creates one overlay per alive sentence chunk (at most eight words),
+with word-ID anchors. All generated captions are operations in one edit, and
+their display times remain derived through `timeline_to_output()`. Music is
+stored only as allow-listed track and speech-ducking intent; this engine phase
+does not perform audio processing.
+
 ## Instruction answers and clarification
 
 The engine answer layer resolves each structured operation against the current

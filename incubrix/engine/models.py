@@ -11,7 +11,7 @@ Overlays / effects anchor to word IDs via Anchor — never to output timestamps.
 from __future__ import annotations
 
 import enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -124,9 +124,15 @@ class Effect(BaseModel):
 class MusicSettings(BaseModel):
     """Background music track settings."""
 
-    track: str = ""
+    track_id: str = ""
     duck_db: float = -12.0
     enabled: bool = False
+    duck_when: Literal["speech"] = "speech"
+
+    @property
+    def track(self) -> str:
+        """Keep the former attribute available to existing engine callers."""
+        return self.track_id
 
 
 # ── Timeline ──────────────────────────────────────────────────────
@@ -143,6 +149,7 @@ class Timeline(BaseModel):
     overlays: list[Overlay] = Field(default_factory=list)
     effects: list[Effect] = Field(default_factory=list)
     music: MusicSettings = Field(default_factory=MusicSettings)
+    protected_pause_after_word_ids: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -231,13 +238,43 @@ class RestoreOp(BaseModel):
     target_edit_id: str
 
 
+class RemoveFillersOp(BaseModel):
+    """Remove identified filler words using snapped source-frame ranges."""
+
+    op: str = "remove_fillers"
+    ranges: list[tuple[int, int]]
+    word_ids: list[str]
+
+
+class RemoveSilenceOp(BaseModel):
+    """Remove current long gaps, stored as resolved source-frame ranges."""
+
+    op: str = "remove_silence"
+    ranges: list[tuple[int, int]]
+    min_gap_s: float
+    protected_after_word_ids: list[str] = Field(default_factory=list)
+
+
+class KeepPauseOp(BaseModel):
+    """Protect the silence gap after a transcript word ID."""
+
+    op: str = "keep_pause"
+    after_word_id: str
+
+
 class MusicOp(BaseModel):
     """Configure background music."""
 
     op: str = "music"
-    track: str
+    track_id: str
     duck_db: float = -12.0
+    duck_when: Literal["speech"] = "speech"
     enabled: bool = True
+
+    @property
+    def track(self) -> str:
+        """Keep the former attribute available to existing engine callers."""
+        return self.track_id
 
 
 # Union type — used for type hints only
@@ -251,6 +288,9 @@ AnyOp = (
     | MuteOp
     | BleepOp
     | RestoreOp
+    | RemoveFillersOp
+    | RemoveSilenceOp
+    | KeepPauseOp
     | MusicOp
 )
 
@@ -264,6 +304,9 @@ _ALL_OPS = (
     MuteOp,
     BleepOp,
     RestoreOp,
+    RemoveFillersOp,
+    RemoveSilenceOp,
+    KeepPauseOp,
     MusicOp,
 )
 

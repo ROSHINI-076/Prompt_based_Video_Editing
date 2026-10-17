@@ -155,8 +155,13 @@ class TestReplayEffectsAndMusic:
     def test_music_op_through_replay(self):
         src = _src(10.0)
         edits = [
-            _edit("e1", "add music", MusicOp(track="background.mp3", duck_db=-12.0, enabled=True))
+            _edit(
+                "e1",
+                "add music",
+                MusicOp(track_id="background.mp3", duck_db=-12.0, enabled=True),
+            )
         ]
+        assert edits[0].ops[0].track == "background.mp3"
         tl = replay(src, edits, _transcript())
         assert tl.music.enabled is True
         assert tl.music.track == "background.mp3"

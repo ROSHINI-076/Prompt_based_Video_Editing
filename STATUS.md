@@ -55,3 +55,14 @@ Updated: 2026-10-16 (Phase 0 Complete)
 | Scale (60-min, <3s) | Not done | — |
 | OpenTimelineIO export | Not done | — |
 | ≥40 scripted scenarios | Not done | — |
+
+## Phase 2C: Remaining pure engine operations
+
+| Operation | Status | Evidence |
+|-----------|--------|----------|
+| Filler removal with guarded “like” rule, snap-to-silence, effect skips | Done | `tests/unit/test_phase2c_ops.py` |
+| Silence removal with source-anchored protected pauses | Done | `tests/unit/test_phase2c_ops.py` |
+| Sentence-based auto-caption in one undoable edit | Done | `tests/unit/test_phase2c_ops.py` |
+| Allow-listed music intent, conflict, replacement and restore | Done | `tests/unit/test_phase2c_ops.py` |
+| Three-run determinism for each new operation | Done | `tests/unit/test_phase2c_ops.py` |
+| Engine statement coverage | Done (100%) | `tests/unit/test_phase2c_ops.py`; full coverage run reports 100% for `incubrix.engine` |

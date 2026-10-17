@@ -95,6 +95,35 @@ making the response layer responsible for deciding how to present a resolution s
 **Context:** Ruff's UP042 recommends replacing classes that inherit from both `str` and
 `enum.Enum` with `enum.StrEnum`. That requires Python 3.11 and changes how `str()` behaves.
 **Decision:** Keep `OverlayStatus` and `EffectType` as `str, enum.Enum` classes and ignore UP042.
-The package's declared minimum Python version is 3.11, consistent with the runtime configuration.
+The source remains compatible with both Python 3.10 and 3.11; no `enum.StrEnum` conversion is used.
 **Rationale:** Preserving the existing string conversion behavior is preferable to applying an
 automatic enum migration solely to satisfy this lint rule.
+
+## D009: Conservative filler classification
+
+**Date:** 2026-10-17
+**Context:** Filler cleanup must remove common hesitation words without deleting meaningful uses
+of "like".
+**Decision:** `ALWAYS_FILLER_WORDS` is `{um, uh, erm, er, ah, hmm}`. A normalized "like" is a filler
+only if it ends with a comma or a neighboring silence gap is at least `LIKE_PAUSE_THRESHOLD_S`
+(0.25 seconds), and the preceding normalized word is not in
+`LIKE_PREVIOUS_WORD_EXCLUSIONS`:
+`{i, you, we, they, would, looks, look, feels, feel, sounds, sound, don't, didn't, doesn't, not,
+just, and, or}`. Filler cuts use `snap_to_silence`; mute/bleeped filler words are preserved and
+reported.
+**Rationale:** The explicit preceding-word guard protects grammatical "like" phrases, while the
+comma/pause signal permits conservative cleanup of discourse fillers.
+
+## D010: Source-anchored silence protection and music intent
+
+**Date:** 2026-10-17
+**Context:** Silence trimming and music intent must remain deterministic, reversible timeline edits.
+**Decision:** Silence is measured between adjacent alive words in current output order, then the
+trimmed ranges are resolved back to source frames with `MIN_SILENCE_PAD_S = 0.15`. A `keep_pause`
+edit stores the preceding word ID; replay carries those IDs into the timeline and later silence
+passes preserve the associated output gap. Auto-captions use sentence word IDs and a maximum chunk
+size of `AUTO_CAPTION_MAX_WORDS = 8`. Music operations store `track_id`, `duck_db`, and
+`duck_when="speech"` as timeline intent only; the default allow-list is
+`ALLOWED_MUSIC_TRACK_IDS = {"bundled_default"}`.
+**Rationale:** Anchors and integer-frame ranges survive replay, undo, redo, restores and reorders;
+the engine records music ducking intent without performing audio processing.
