@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from incubrix.engine.models import Segment, SourceInfo, Word, make_word_id, segment_output_length
+from incubrix.engine.models import Segment, SourceInfo, Word, make_word_id
 from incubrix.engine.timeline import (
     Layout,
     frames_to_seconds,
@@ -14,7 +12,6 @@ from incubrix.engine.timeline import (
     total_duration_frames,
     word_midpoint_frame,
 )
-
 
 FPS = 30.0
 

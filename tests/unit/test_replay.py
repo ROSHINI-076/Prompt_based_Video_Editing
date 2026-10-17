@@ -11,14 +11,12 @@ Required by spec (Phase 1):
 
 from __future__ import annotations
 
-import pytest
-
+from incubrix.engine.hashing import timeline_hash
 from incubrix.engine.models import (
     AddCaptionOp,
     CutOp,
     Edit,
     KeepOnlyOp,
-    Overlay,
     OverlayStatus,
     ReorderOp,
     RestoreOp,
@@ -29,12 +27,8 @@ from incubrix.engine.models import (
     make_word_id,
     segment_output_length,
 )
-from incubrix.engine.hashing import timeline_hash
 from incubrix.engine.replay import replay
 from incubrix.engine.timeline import (
-    Layout,
-    initial_timeline,
-    is_word_alive,
     total_duration_frames,
 )
 
@@ -49,10 +43,14 @@ def _transcript(n: int = 20, word_dur: float = 0.4, gap: float = 0.1) -> Transcr
     words = []
     t = 0.0
     for i in range(n):
-        words.append(Word(
-            id=make_word_id(i), text=f"w{i}",
-            start_s=t, end_s=t + word_dur,
-        ))
+        words.append(
+            Word(
+                id=make_word_id(i),
+                text=f"w{i}",
+                start_s=t,
+                end_s=t + word_dur,
+            )
+        )
         t += word_dur + gap
     return Transcript(words=words)
 
@@ -114,11 +112,14 @@ class TestCaptionFollowsWords:
         transcript = _transcript(20)
         # Caption on words 6-8 (roughly 3.0-3.9 s)
         caption_edit = _edit(
-            "e1", "add caption",
+            "e1",
+            "add caption",
             AddCaptionOp(
-                overlay_id="ov1", text="Caption!",
-                start_word_id=make_word_id(6), end_word_id=make_word_id(8),
-            )
+                overlay_id="ov1",
+                text="Caption!",
+                start_word_id=make_word_id(6),
+                end_word_id=make_word_id(8),
+            ),
         )
         cut_edit = _edit("e2", "cut first 2s", CutOp(ranges=[(0, 60)]))
         tl = replay(src, [caption_edit, cut_edit], transcript)
@@ -131,11 +132,14 @@ class TestCaptionFollowsWords:
         transcript = _transcript(20)
         # Words 2-4: roughly 1.0-2.2 s → frames 30-66
         caption_edit = _edit(
-            "e1", "add caption",
+            "e1",
+            "add caption",
             AddCaptionOp(
-                overlay_id="ov1", text="Caption!",
-                start_word_id=make_word_id(2), end_word_id=make_word_id(4),
-            )
+                overlay_id="ov1",
+                text="Caption!",
+                start_word_id=make_word_id(2),
+                end_word_id=make_word_id(4),
+            ),
         )
         # Cut frames 25-70 — kills midpoints of words 2,3,4
         cut_edit = _edit("e2", "cut 1-2.5s", CutOp(ranges=[(25, 70)]))
@@ -148,11 +152,14 @@ class TestCaptionFollowsWords:
         src = _src(10.0)
         transcript = _transcript(20)
         caption_edit = _edit(
-            "e1", "add caption",
+            "e1",
+            "add caption",
             AddCaptionOp(
-                overlay_id="ov1", text="Caption!",
-                start_word_id=make_word_id(2), end_word_id=make_word_id(4),
-            )
+                overlay_id="ov1",
+                text="Caption!",
+                start_word_id=make_word_id(2),
+                end_word_id=make_word_id(4),
+            ),
         )
         cut_edit = _edit("e2", "cut words 2-4", CutOp(ranges=[(25, 70)]))
         restore_edit = _edit("e3", "restore e2", RestoreOp(target_edit_id="e2"))
@@ -167,11 +174,14 @@ class TestCaptionFollowsWords:
         src = _src(10.0)
         transcript = _transcript(20)
         caption_edit = _edit(
-            "e1", "add caption",
+            "e1",
+            "add caption",
             AddCaptionOp(
-                overlay_id="ov1", text="Caption!",
-                start_word_id=make_word_id(6), end_word_id=make_word_id(8),
-            )
+                overlay_id="ov1",
+                text="Caption!",
+                start_word_id=make_word_id(6),
+                end_word_id=make_word_id(8),
+            ),
         )
         speed_edit = _edit("e2", "speed 2x on first 5s", SpeedOp(range=(0, 150), factor=2.0))
         tl = replay(src, [caption_edit, speed_edit], transcript)
@@ -184,11 +194,14 @@ class TestCaptionFollowsWords:
         transcript = _transcript(20)
         # Words 4-8 span roughly 2.0-4.4 s
         caption_edit = _edit(
-            "e1", "add caption",
+            "e1",
+            "add caption",
             AddCaptionOp(
-                overlay_id="ov1", text="Caption!",
-                start_word_id=make_word_id(4), end_word_id=make_word_id(8),
-            )
+                overlay_id="ov1",
+                text="Caption!",
+                start_word_id=make_word_id(4),
+                end_word_id=make_word_id(8),
+            ),
         )
         # Cut only frames 0-50 → kills words 0-2 but not 4-8
         # BUT cut only the START of the caption range (word 4-5 area)
@@ -205,11 +218,14 @@ class TestCaptionFollowsWords:
         transcript = _transcript(20)
         # Caption on words 15-17 (late in video)
         caption_edit = _edit(
-            "e1", "add caption",
+            "e1",
+            "add caption",
             AddCaptionOp(
-                overlay_id="ov1", text="Caption!",
-                start_word_id=make_word_id(15), end_word_id=make_word_id(17),
-            )
+                overlay_id="ov1",
+                text="Caption!",
+                start_word_id=make_word_id(15),
+                end_word_id=make_word_id(17),
+            ),
         )
         # Reorder: move frames 0-90 to after frame 180
         reorder_edit = _edit("e2", "reorder", ReorderOp(range=(0, 90), before=180))
@@ -241,11 +257,14 @@ class TestRestoreSemantics:
         transcript = _transcript(20)
         cut_e1 = _edit("e1", "cut 0-2s", CutOp(ranges=[(0, 60)]))
         caption_e2 = _edit(
-            "e2", "add caption",
+            "e2",
+            "add caption",
             AddCaptionOp(
-                overlay_id="ov1", text="Caption!",
-                start_word_id=make_word_id(10), end_word_id=make_word_id(12),
-            )
+                overlay_id="ov1",
+                text="Caption!",
+                start_word_id=make_word_id(10),
+                end_word_id=make_word_id(12),
+            ),
         )
         cut_e3 = _edit("e3", "cut 8-9s", CutOp(ranges=[(240, 270)]))
         restore_e1 = _edit("e4", "restore e1", RestoreOp(target_edit_id="e1"))
@@ -279,11 +298,14 @@ class TestDeterminism:
         edits = [
             _edit("e1", "cut", CutOp(ranges=[(0, 90)])),
             _edit(
-                "e2", "caption",
+                "e2",
+                "caption",
                 AddCaptionOp(
-                    overlay_id="ov1", text="Hi!",
-                    start_word_id=make_word_id(5), end_word_id=make_word_id(7),
-                )
+                    overlay_id="ov1",
+                    text="Hi!",
+                    start_word_id=make_word_id(5),
+                    end_word_id=make_word_id(7),
+                ),
             ),
             _edit("e3", "speed", SpeedOp(range=(90, 150), factor=1.5)),
         ]

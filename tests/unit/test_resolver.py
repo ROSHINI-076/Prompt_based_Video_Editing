@@ -103,7 +103,10 @@ def test_four_phrase_occurrences_are_ambiguous_with_all_option():
     assert len(result.options) == 5
     assert [option.choice for option in result.options] == [1, 2, 3, 4, "all"]
     assert [option.snippet for option in result.options[:4]] == [
-        "thanks", "thanks", "thanks", "thanks"
+        "thanks",
+        "thanks",
+        "thanks",
+        "thanks",
     ]
     assert all(option.current_start_s is not None for option in result.options[:4])
 
@@ -129,9 +132,7 @@ def test_choice_and_range_format_helpers_cover_valid_and_invalid_inputs():
 
 def test_ambiguous_notes_handle_options_without_current_display_times():
     resolver = _resolver()
-    with_no_ranges = resolver._ambiguous_note(
-        "selection", [resolver_option(choice=1)]
-    )
+    with_no_ranges = resolver._ambiguous_note("selection", [resolver_option(choice=1)])
     with_original_edit = resolver._ambiguous_note(
         "selection",
         [resolver_option(choice=1, edit_id="e9", source_ranges=((0, 30),))],
@@ -139,12 +140,14 @@ def test_ambiguous_notes_handle_options_without_current_display_times():
     )
     with_original_time_option = resolver._ambiguous_note(
         "selection",
-        [resolver_option(
-            choice=1,
-            current_start_s=1.0,
-            current_end_s=2.0,
-            source_ranges=((30, 60),),
-        )],
+        [
+            resolver_option(
+                choice=1,
+                current_start_s=1.0,
+                current_end_s=2.0,
+                source_ranges=((30, 60),),
+            )
+        ],
         policy="original",
     )
 
@@ -173,12 +176,8 @@ def resolver_option(
 
 def test_after_phrase_waits_for_choice_then_returns_tail_source_range():
     resolver = _resolver(duration_s=30.0)
-    unresolved = resolver.resolve_phrase(
-        PhraseTarget(text="thanks", relation="after")
-    )
-    chosen = resolver.resolve_phrase(
-        PhraseTarget(text="thanks", relation="after", choice=2)
-    )
+    unresolved = resolver.resolve_phrase(PhraseTarget(text="thanks", relation="after"))
+    chosen = resolver.resolve_phrase(PhraseTarget(text="thanks", relation="after", choice=2))
 
     assert unresolved.status == "AMBIGUOUS"
     assert unresolved.source_ranges == []
@@ -215,15 +214,9 @@ def test_time_rejects_unknown_policy_missing_bounds_and_conflicting_forms():
     assert resolver.resolve_time(TimeTarget(policy="wallclock")).error_code == "BAD_RANGE"
     assert resolver.resolve_time(TimeTarget()).error_code == "BAD_RANGE"
     assert resolver.resolve_time(TimeTarget(start=1)).error_code == "BAD_RANGE"
-    assert resolver.resolve_time(
-        TimeTarget(end=2, from_start=1)
-    ).error_code == "BAD_RANGE"
-    assert resolver.resolve_time(
-        TimeTarget(start=1, from_end=2)
-    ).error_code == "BAD_RANGE"
-    assert resolver.resolve_time(
-        TimeTarget(start=100, end=101)
-    ).error_code == "BAD_RANGE"
+    assert resolver.resolve_time(TimeTarget(end=2, from_start=1)).error_code == "BAD_RANGE"
+    assert resolver.resolve_time(TimeTarget(start=1, from_end=2)).error_code == "BAD_RANGE"
+    assert resolver.resolve_time(TimeTarget(start=100, end=101)).error_code == "BAD_RANGE"
 
 
 def test_last_duration_longer_than_video_covers_full_source():
@@ -260,9 +253,7 @@ def test_original_time_policy_ignores_earlier_cut():
     earlier_cut = _edit("e1", CutOp(ranges=[(0, 20 * round(FPS))]))
     resolver = _resolver(edits=[earlier_cut])
 
-    result = resolver.resolve_time(
-        TimeTarget(from_start=30.0, policy="original")
-    )
+    result = resolver.resolve_time(TimeTarget(from_start=30.0, policy="original"))
 
     assert result.source_ranges == [(0, 30 * round(FPS))]
     assert "original time" in result.note
@@ -273,19 +264,13 @@ def test_topic_pricing_matches_sentence_containing_cost():
 
     assert result.status == "RESOLVED"
     assert result.source_ranges == [(round(14.8 * FPS), round(19.6 * FPS))]
-    assert result.word_ids == [
-        "w0016", "w0017", "w0018", "w0019", "w0020"
-    ]
+    assert result.word_ids == ["w0016", "w0017", "w0018", "w0019", "w0020"]
 
 
 def test_topic_ambiguity_supports_all_and_invalid_choice():
     resolver = _resolver()
-    all_matches = resolver.resolve_topic(
-        TopicTarget(query="thanks", choice="all")
-    )
-    invalid_choice = resolver.resolve_topic(
-        TopicTarget(query="thanks", choice=20)
-    )
+    all_matches = resolver.resolve_topic(TopicTarget(query="thanks", choice="all"))
+    invalid_choice = resolver.resolve_topic(TopicTarget(query="thanks", choice=20))
 
     assert all_matches.status == "RESOLVED"
     assert len(all_matches.source_ranges) == 4
@@ -314,9 +299,9 @@ def test_phrase_only_in_cut_region_is_ignored_with_explanation():
 def test_phrase_handles_empty_query_speaker_mismatch_and_all_occurrences():
     resolver = _resolver()
     assert resolver.resolve_phrase(PhraseTarget(text="!!!")).status == "NO_MATCH"
-    assert resolver.resolve_phrase(
-        PhraseTarget(text="thanks", speaker="nobody")
-    ).status == "NO_MATCH"
+    assert (
+        resolver.resolve_phrase(PhraseTarget(text="thanks", speaker="nobody")).status == "NO_MATCH"
+    )
 
     result = resolver.resolve_phrase(PhraseTarget(text="thanks", choice="all"))
     assert result.status == "RESOLVED"
@@ -333,9 +318,7 @@ def test_phrase_invalid_choice_remains_ambiguous_without_selecting():
 
 
 def test_phrase_detects_match_outside_source_without_treating_it_as_cut():
-    transcript = Transcript(
-        words=[Word(id="w0001", text="late", start_s=20, end_s=21)]
-    )
+    transcript = Transcript(words=[Word(id="w0001", text="late", start_s=20, end_s=21)])
     result = Resolver(replay(_source(10), [], transcript), transcript).resolve_phrase(
         PhraseTarget(text="late")
     )
@@ -345,9 +328,7 @@ def test_phrase_detects_match_outside_source_without_treating_it_as_cut():
 
 
 def test_before_relation_uses_tail_before_selected_phrase():
-    result = _resolver().resolve_phrase(
-        PhraseTarget(text="thanks", relation="before", choice=2)
-    )
+    result = _resolver().resolve_phrase(PhraseTarget(text="thanks", relation="before", choice=2))
 
     assert result.status == "RESOLVED"
     assert result.source_ranges == [(0, round(5.8 * FPS))]
@@ -376,7 +357,6 @@ def test_phrase_before_relation_maps_to_surviving_word_when_snap_boundary_was_cu
     assert result.source_ranges == [(round(2.2 * FPS), round(2.3 * FPS))]
 
 
-
 def test_topic_match_in_cut_region_is_ignored():
     cut = _edit("e1", CutOp(ranges=[(15 * round(FPS), 20 * round(FPS))]))
     result = _resolver(edits=[cut]).resolve_topic(TopicTarget(query="pricing"))
@@ -399,15 +379,9 @@ def test_restore_overlap_filters_active_cut_edits_and_reports_ambiguity():
     second = _edit("e2", CutOp(ranges=[(30 * FPS, 60 * FPS)]))
     resolver = _resolver(edits=[first, second])
 
-    ambiguous = resolver.resolve_restore(
-        RestoreTarget(overlap=(0, 60), any=False)
-    )
-    selected = resolver.resolve_restore(
-        RestoreTarget(overlap=(0, 30), any=False)
-    )
-    selected_all = resolver.resolve_restore(
-        RestoreTarget(overlap=(0, 60), choice="all")
-    )
+    ambiguous = resolver.resolve_restore(RestoreTarget(overlap=(0, 60), any=False))
+    selected = resolver.resolve_restore(RestoreTarget(overlap=(0, 30), any=False))
+    selected_all = resolver.resolve_restore(RestoreTarget(overlap=(0, 60), choice="all"))
     by_id = resolver.resolve_restore(RestoreTarget(edit_id="e1"))
 
     assert ambiguous.status == "AMBIGUOUS"
@@ -423,9 +397,7 @@ def test_restore_ignores_edits_already_disabled_by_restore():
     cut = _edit("e1", CutOp(ranges=[(0, 30 * FPS)]))
     restore = _edit("e2", RestoreOp(target_edit_id="e1"))
 
-    result = _resolver(edits=[cut, restore]).resolve_restore(
-        RestoreTarget(any=True)
-    )
+    result = _resolver(edits=[cut, restore]).resolve_restore(RestoreTarget(any=True))
 
     assert result.status == "NO_MATCH"
 
@@ -460,25 +432,23 @@ def test_restore_invalid_ambiguous_choice_returns_options():
         _edit("e1", CutOp(ranges=[(0, 30)])),
         _edit("e2", CutOp(ranges=[(60, 90)])),
     ]
-    result = _resolver(edits=edits).resolve_restore(
-        RestoreTarget(any=True, choice="invalid")
-    )
+    result = _resolver(edits=edits).resolve_restore(RestoreTarget(any=True, choice="invalid"))
 
     assert result.status == "AMBIGUOUS"
     assert result.options[-1].choice == "all"
 
-    selected = _resolver(edits=[
-        _edit("e1", CutOp(ranges=[(0, 30)])),
-        _edit("e2", CutOp(ranges=[(60, 90)])),
-    ]).resolve_restore(RestoreTarget(any=True, choice=2))
+    selected = _resolver(
+        edits=[
+            _edit("e1", CutOp(ranges=[(0, 30)])),
+            _edit("e2", CutOp(ranges=[(60, 90)])),
+        ]
+    ).resolve_restore(RestoreTarget(any=True, choice=2))
     assert selected.status == "RESOLVED"
     assert selected.edit_ids == ["e2"]
 
 
 def test_phrase_ranges_snap_to_surrounding_silence_midpoints():
-    result = _resolver().resolve_phrase(
-        PhraseTarget(text="thanks", choice=2)
-    )
+    result = _resolver().resolve_phrase(PhraseTarget(text="thanks", choice=2))
 
     # Second thanks is [6.0, 6.6); adjacent words end/start at 5.6/7.0,
     # so the chosen cut interval is snapped to 5.8s and 6.8s.
@@ -579,12 +549,11 @@ def test_caption_no_match_dormant_caption_and_invalid_choice():
         ),
     ]
     ambiguous_timeline = replay(_source(), multiple, transcript)
-    invalid = Resolver(
-        ambiguous_timeline, transcript, multiple
-    ).resolve_caption(CaptionTarget(choice="unknown"))
+    invalid = Resolver(ambiguous_timeline, transcript, multiple).resolve_caption(
+        CaptionTarget(choice="unknown")
+    )
     assert invalid.status == "AMBIGUOUS"
     assert invalid.options[-1].choice == "all"
-
 
 
 def test_reorder_destination_supports_start_end_time_and_phrase():
@@ -592,9 +561,7 @@ def test_reorder_destination_supports_start_end_time_and_phrase():
 
     start = resolver.resolve_reorder_destination(ReorderDestination(kind="start"))
     end = resolver.resolve_reorder_destination(ReorderDestination(kind="end"))
-    by_time = resolver.resolve_reorder_destination(
-        ReorderDestination(kind="time", time_s=2.0)
-    )
+    by_time = resolver.resolve_reorder_destination(ReorderDestination(kind="time", time_s=2.0))
     ambiguous_phrase = resolver.resolve_reorder_destination(
         ReorderDestination(kind="phrase", phrase="thanks")
     )
@@ -614,48 +581,38 @@ def test_reorder_destination_rejects_empty_timeline_missing_or_invalid_times():
     empty = replay(_source(10), [], transcript).model_copy(update={"segments": []})
     resolver = Resolver(empty, transcript)
 
-    assert resolver.resolve_reorder_destination(
-        ReorderDestination(kind="start")
-    ).status == "NO_MATCH"
-    assert resolver.resolve_reorder_destination(
-        ReorderDestination(kind="end")
-    ).status == "NO_MATCH"
-    assert resolver.resolve_reorder_destination(
-        ReorderDestination(kind="time")
-    ).status == "BAD_RANGE"
-    assert resolver.resolve_reorder_destination(
-        ReorderDestination(kind="time", time_s=-1)
-    ).status == "BAD_RANGE"
-    assert resolver.resolve_reorder_destination(
-        ReorderDestination(kind="time", time_s=0)
-    ).status == "OUT_OF_RANGE"
+    assert (
+        resolver.resolve_reorder_destination(ReorderDestination(kind="start")).status == "NO_MATCH"
+    )
+    assert resolver.resolve_reorder_destination(ReorderDestination(kind="end")).status == "NO_MATCH"
+    assert (
+        resolver.resolve_reorder_destination(ReorderDestination(kind="time")).status == "BAD_RANGE"
+    )
+    assert (
+        resolver.resolve_reorder_destination(ReorderDestination(kind="time", time_s=-1)).status
+        == "BAD_RANGE"
+    )
+    assert (
+        resolver.resolve_reorder_destination(ReorderDestination(kind="time", time_s=0)).status
+        == "OUT_OF_RANGE"
+    )
 
 
 def test_reorder_time_reports_no_source_for_inconsistent_layout_cache():
     resolver = _resolver(duration_s=10)
     resolver.layout._total += 1
 
-    result = resolver.resolve_reorder_destination(
-        ReorderDestination(kind="time", time_s=10)
-    )
+    result = resolver.resolve_reorder_destination(ReorderDestination(kind="time", time_s=10))
 
     assert result.status == "NO_MATCH"
 
 
 def test_reorder_destination_handles_end_boundary_and_invalid_time_or_phrase_choices():
     resolver = _resolver(duration_s=30)
-    at_end = resolver.resolve_reorder_destination(
-        ReorderDestination(kind="time", time_s=30)
-    )
-    beyond = resolver.resolve_reorder_destination(
-        ReorderDestination(kind="time", time_s=31)
-    )
-    invalid_kind = resolver.resolve_reorder_destination(
-        ReorderDestination(kind="other")
-    )
-    missing_phrase = resolver.resolve_reorder_destination(
-        ReorderDestination(kind="phrase")
-    )
+    at_end = resolver.resolve_reorder_destination(ReorderDestination(kind="time", time_s=30))
+    beyond = resolver.resolve_reorder_destination(ReorderDestination(kind="time", time_s=31))
+    invalid_kind = resolver.resolve_reorder_destination(ReorderDestination(kind="other"))
+    missing_phrase = resolver.resolve_reorder_destination(ReorderDestination(kind="phrase"))
     invalid_choice = resolver.resolve_reorder_destination(
         ReorderDestination(kind="phrase", phrase="thanks", choice=50)
     )
@@ -677,9 +634,12 @@ def test_reorder_phrase_reports_no_match_and_handles_snapped_boundary_cut():
     timeline = replay(_source(30), [cut], transcript)
     resolver = Resolver(timeline, transcript, [cut])
 
-    assert resolver.resolve_reorder_destination(
-        ReorderDestination(kind="phrase", phrase="not present")
-    ).status == "NO_MATCH"
+    assert (
+        resolver.resolve_reorder_destination(
+            ReorderDestination(kind="phrase", phrase="not present")
+        ).status
+        == "NO_MATCH"
+    )
     destination = resolver.resolve_reorder_destination(
         ReorderDestination(kind="phrase", phrase="thanks", choice=1)
     )
@@ -689,9 +649,7 @@ def test_reorder_phrase_reports_no_match_and_handles_snapped_boundary_cut():
 
 def test_embedder_hook_can_add_a_sentence_match():
     sentence_embedder = lambda query, sentence: 0.9 if "hello there" in sentence else 0.0
-    result = _resolver(embedder=sentence_embedder).resolve_topic(
-        TopicTarget(query="salutations")
-    )
+    result = _resolver(embedder=sentence_embedder).resolve_topic(TopicTarget(query="salutations"))
 
     assert result.status == "RESOLVED"
     assert result.word_ids == ["w0001", "w0002", "w0003", "w0004"]
@@ -709,15 +667,14 @@ def test_topic_speaker_filter_empty_sentence_list_and_fallback_sentence_boundari
     resolver = Resolver(replay(_source(10), [], transcript), transcript)
 
     assert resolver._sentences() == [(0, 1), (2, 3)]
-    assert resolver.resolve_topic(
-        TopicTarget(query="pricing", speaker="B")
-    ).status == "RESOLVED"
-    assert resolver.resolve_topic(
-        TopicTarget(query="pricing", speaker="unknown")
-    ).status == "NO_MATCH"
-    assert Resolver(
-        replay(_source(10), [], Transcript(words=[])), Transcript(words=[])
-    )._sentences() == []
+    assert resolver.resolve_topic(TopicTarget(query="pricing", speaker="B")).status == "RESOLVED"
+    assert (
+        resolver.resolve_topic(TopicTarget(query="pricing", speaker="unknown")).status == "NO_MATCH"
+    )
+    assert (
+        Resolver(replay(_source(10), [], Transcript(words=[])), Transcript(words=[]))._sentences()
+        == []
+    )
 
 
 def test_topic_sentence_fallback_splits_on_punctuation_and_pause_and_keeps_tail():
@@ -738,8 +695,6 @@ def test_topic_empty_query_and_sentence_with_no_matching_keyword():
     resolver = _resolver()
     assert resolver.resolve_topic(TopicTarget(query="!!!")).status == "NO_MATCH"
     assert resolver.resolve_topic(TopicTarget(query="unrelated")).status == "NO_MATCH"
-
-
 
 
 def test_time_rejects_empty_current_timeline():

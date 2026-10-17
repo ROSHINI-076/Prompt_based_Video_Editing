@@ -15,7 +15,6 @@ from incubrix.engine.answers import (
 from incubrix.engine.models import (
     AddCaptionOp,
     CutOp,
-    Edit,
     KeepOnlyOp,
     MuteOp,
     ReorderOp,
@@ -46,16 +45,18 @@ def _transcript(entries: list[tuple[str, float, float, float]] | None = None) ->
             ("is", 5.4, 5.6, 0.95),
             ("high.", 5.7, 6.0, 0.95),
         ]
-    return Transcript(words=[
-        Word(
-            id=make_word_id(i),
-            text=text,
-            start_s=start,
-            end_s=end,
-            confidence=confidence,
-        )
-        for i, (text, start, end, confidence) in enumerate(entries)
-    ])
+    return Transcript(
+        words=[
+            Word(
+                id=make_word_id(i),
+                text=text,
+                start_s=start,
+                end_s=end,
+                confidence=confidence,
+            )
+            for i, (text, start, end, confidence) in enumerate(entries)
+        ]
+    )
 
 
 def _session(duration_s: float = 10.0, transcript: Transcript | None = None) -> SessionManager:
@@ -66,15 +67,17 @@ def _session(duration_s: float = 10.0, transcript: Transcript | None = None) -> 
 
 
 def _many_thanks_session() -> SessionManager:
-    transcript = _transcript([
-        ("thanks", 1.0, 1.2, 0.9),
-        ("a", 2.0, 2.2, 0.9),
-        ("thanks", 3.0, 3.2, 0.9),
-        ("b", 4.0, 4.2, 0.9),
-        ("thanks", 5.0, 5.2, 0.9),
-        ("c", 6.0, 6.2, 0.9),
-        ("thanks", 7.0, 7.2, 0.9),
-    ])
+    transcript = _transcript(
+        [
+            ("thanks", 1.0, 1.2, 0.9),
+            ("a", 2.0, 2.2, 0.9),
+            ("thanks", 3.0, 3.2, 0.9),
+            ("b", 4.0, 4.2, 0.9),
+            ("thanks", 5.0, 5.2, 0.9),
+            ("c", 6.0, 6.2, 0.9),
+            ("thanks", 7.0, 7.2, 0.9),
+        ]
+    )
     return _session(10, transcript)
 
 
@@ -105,9 +108,7 @@ def test_applied_cut_reports_lengths_policy_and_resolved_source_operation():
     assert result["duration_s"] == 9.0
     assert "Video length 0:10 -> 0:09 (-0:01)" in result["summary"]
     assert "Times read as current (edited) time" in result["summary"]
-    assert result["operations"] == [
-        {"op": "cut", "ranges": [{"start_s": 0.0, "end_s": 1.0}]}
-    ]
+    assert result["operations"] == [{"op": "cut", "ranges": [{"start_s": 0.0, "end_s": 1.0}]}]
     assert isinstance(session.state.stack[0].ops[0], CutOp)
 
 
@@ -121,7 +122,10 @@ def test_ambiguous_phrase_is_pending_and_answer_selects_third_occurrence():
     )
 
     assert question["status"] == "needs_clarification"
-    assert question["question"] == "'thanks' is mentioned 4 times at 0:01, 0:03, 0:05 and 0:07. Which one, or all?"
+    assert (
+        question["question"]
+        == "'thanks' is mentioned 4 times at 0:01, 0:03, 0:05 and 0:07. Which one, or all?"
+    )
     assert len(question["options"]) == 5
     assert question["options"][-1]["choice"] == "all"
     assert session.state.stack == []
@@ -298,7 +302,9 @@ def test_non_string_clarification_answer_is_invalid_argument():
 
 def test_repeating_identical_original_time_cut_is_no_change():
     session = _session()
-    _say(session, {"op": "cut", "target": _time(0, 1, "original")}, instruction="cut original intro")
+    _say(
+        session, {"op": "cut", "target": _time(0, 1, "original")}, instruction="cut original intro"
+    )
 
     result = _say(
         session,
@@ -373,24 +379,18 @@ def test_current_time_keep_only_repeat_requires_confirmation():
 def test_intent_target_signature_shapes_and_invalid_values():
     assert _target_signature({"target": None}) is None
     assert _target_signature({"target": {"kind": "time"}}) is None
-    assert _target_signature({
-        "target": {"kind": "time", "start": "bad", "end": 1}
-    }) is None
-    assert _target_signature({
-        "target": {"start": 0, "end": 1}
-    }) == ("time", "current", "range", 0.0, 1.0)
-    assert _target_signature({
-        "target": {"kind": "phrase", "text": "thanks"}
-    })[0] == "phrase"
-    assert _target_signature({
-        "target": {"kind": "topic", "query": "pricing"}
-    })[0] == "topic"
-    assert _target_signature({
-        "target": {"kind": "topic", "query": 7}
-    }) is None
-    assert _target_signature({
-        "target": {"kind": "caption"}
-    }) is None
+    assert _target_signature({"target": {"kind": "time", "start": "bad", "end": 1}}) is None
+    assert _target_signature({"target": {"start": 0, "end": 1}}) == (
+        "time",
+        "current",
+        "range",
+        0.0,
+        1.0,
+    )
+    assert _target_signature({"target": {"kind": "phrase", "text": "thanks"}})[0] == "phrase"
+    assert _target_signature({"target": {"kind": "topic", "query": "pricing"}})[0] == "topic"
+    assert _target_signature({"target": {"kind": "topic", "query": 7}}) is None
+    assert _target_signature({"target": {"kind": "caption"}}) is None
 
 
 def test_duplicate_identical_instruction_without_a_destructive_target_is_no_change():
@@ -528,7 +528,11 @@ def test_rejection_codes_and_error_shape():
         (_session(2), {"op": "cut", "target": _time(3, 4)}, "OUT_OF_RANGE"),
         (_session(), {"op": "cut", "target": _time(2, 1)}, "BAD_RANGE"),
         (_session(), {"op": "cut", "target": {"kind": "phrase", "text": "absent"}}, "NO_MATCH"),
-        (_session(), {"op": "style", "target": {"kind": "caption"}, "style": {"size": 20}}, "NO_TARGET"),
+        (
+            _session(),
+            {"op": "style", "target": {"kind": "caption"}, "style": {"size": 20}},
+            "NO_TARGET",
+        ),
         (_session(), {"op": "undo"}, "NOTHING_TO_UNDO"),
         (_session(), {"op": "redo"}, "NOTHING_TO_REDO"),
     ]
@@ -546,14 +550,16 @@ def test_rejection_codes_and_error_shape():
 def test_keep_only_speed_reorder_and_undo_redo_are_one_step():
     session = _session()
     keep = _say(
-        session, {"op": "keep_only", "target": _time(1, 9)},
+        session,
+        {"op": "keep_only", "target": _time(1, 9)},
         instruction="keep middle",
     )
     assert keep["status"] == "applied"
     assert isinstance(session.state.stack[-1].ops[0], KeepOnlyOp)
 
     sped = _say(
-        session, {"op": "speed", "target": _time(1, 2), "factor": 2},
+        session,
+        {"op": "speed", "target": _time(1, 2), "factor": 2},
         instruction="speed start",
     )
     assert sped["status"] == "applied"
@@ -657,14 +663,20 @@ def test_speed_overlap_warning_only_when_existing_speed_is_overwritten():
 
 
 def test_dormant_partial_caption_and_low_confidence_warning():
-    transcript = _transcript([
-        ("sensitive", 1.0, 1.3, 0.2),
-        ("words", 1.4, 1.7, 0.9),
-    ])
+    transcript = _transcript(
+        [
+            ("sensitive", 1.0, 1.3, 0.2),
+            ("words", 1.4, 1.7, 0.9),
+        ]
+    )
     session = _session(4, transcript)
     _say(
         session,
-        {"op": "add_caption", "text": "Caption", "target": {"kind": "phrase", "text": "sensitive words"}},
+        {
+            "op": "add_caption",
+            "text": "Caption",
+            "target": {"kind": "phrase", "text": "sensitive words"},
+        },
         instruction="add caption",
     )
     partial = _say(
@@ -689,7 +701,11 @@ def test_deterministic_hash_for_repeated_runs():
         _say(session, {"op": "cut", "target": _time(0, 1)}, instruction="cut first")
         _say(
             session,
-            {"op": "add_caption", "text": "Welcome!", "target": {"kind": "phrase", "text": "welcome to the channel"}},
+            {
+                "op": "add_caption",
+                "text": "Welcome!",
+                "target": {"kind": "phrase", "text": "welcome to the channel"},
+            },
             instruction="caption welcome",
         )
         hashes.append(session.get_timeline_hash())
@@ -757,7 +773,10 @@ def test_target_forms_topic_and_invalid_structured_intents():
     invalid = [
         ({"op": "cut", "target": None}, "INVALID_ARGUMENT"),
         ({"op": "cut", "target": {"kind": "mystery"}}, "INVALID_ARGUMENT"),
-        ({"op": "cut", "target": {"kind": "phrase", "text": "thanks", "relation": "around"}}, "INVALID_ARGUMENT"),
+        (
+            {"op": "cut", "target": {"kind": "phrase", "text": "thanks", "relation": "around"}},
+            "INVALID_ARGUMENT",
+        ),
         ({"op": "restore", "target": {"kind": "overlap", "start": 0}}, "INVALID_ARGUMENT"),
         ({"op": "speed", "target": _time(0, 1), "factor": True}, "INVALID_SPEED"),
         ({"op": "speed", "target": _time(0, 1), "factor": "fast"}, "INVALID_SPEED"),
@@ -766,30 +785,71 @@ def test_target_forms_topic_and_invalid_structured_intents():
         ({"op": "speed", "target": _time(0, 1)}, "INVALID_SPEED"),
         ({"op": "speed", "target": None, "factor": 10}, "INVALID_SPEED"),
         ({"op": "unsupported", "target": _time(0, 1)}, "UNSUPPORTED_OPERATION"),
-        ({"op": "cut", "target": {"kind": "phrase", "text": "hello", "relation": "before"}}, "NO_MATCH"),
-        ({"op": "speed", "target": {"kind": "phrase", "text": "hello", "relation": "before"}, "factor": 2}, "NO_MATCH"),
-        ({"op": "add_caption", "text": "", "target": {"kind": "phrase", "text": "welcome"}}, "INVALID_ARGUMENT"),
+        (
+            {"op": "cut", "target": {"kind": "phrase", "text": "hello", "relation": "before"}},
+            "NO_MATCH",
+        ),
+        (
+            {
+                "op": "speed",
+                "target": {"kind": "phrase", "text": "hello", "relation": "before"},
+                "factor": 2,
+            },
+            "NO_MATCH",
+        ),
+        (
+            {"op": "add_caption", "text": "", "target": {"kind": "phrase", "text": "welcome"}},
+            "INVALID_ARGUMENT",
+        ),
         ({"op": "style", "style": {"size": 18}}, "NO_TARGET"),
         ({"op": "reorder", "target": _time(0, 1), "before": 10}, "BAD_RANGE"),
         ({"op": "reorder", "target": _time(0, 1), "before": {"kind": "nowhere"}}, "BAD_RANGE"),
         ({"op": "reorder", "target": _time(0, 1), "before": {"kind": "phrase"}}, "BAD_RANGE"),
-        ({"op": "reorder", "target": {"kind": "phrase", "text": "absent"}, "before": "end"}, "NO_MATCH"),
-        ({"op": "style", "target": {"kind": "caption", "text": 7}, "style": {"color": "red"}}, "INVALID_ARGUMENT"),
+        (
+            {"op": "reorder", "target": {"kind": "phrase", "text": "absent"}, "before": "end"},
+            "NO_MATCH",
+        ),
+        (
+            {"op": "style", "target": {"kind": "caption", "text": 7}, "style": {"color": "red"}},
+            "INVALID_ARGUMENT",
+        ),
         ({"op": "style", "target": {"kind": "caption"}, "style": []}, "INVALID_ARGUMENT"),
         ({"op": "cut", "target": {"kind": "time", "start": 0}}, "INVALID_ARGUMENT"),
         ({"op": "cut", "target": {"kind": "time"}}, "INVALID_ARGUMENT"),
         ({"op": "cut", "target": {"kind": "time", "start": "zero", "end": 1}}, "INVALID_ARGUMENT"),
-        ({"op": "cut", "target": {"kind": "time", "start": 0, "end": 1, "policy": "local"}}, "INVALID_ARGUMENT"),
-        ({"op": "cut", "target": {"kind": "time", "start": 0, "end": 1, "from_start": 2}}, "INVALID_ARGUMENT"),
+        (
+            {"op": "cut", "target": {"kind": "time", "start": 0, "end": 1, "policy": "local"}},
+            "INVALID_ARGUMENT",
+        ),
+        (
+            {"op": "cut", "target": {"kind": "time", "start": 0, "end": 1, "from_start": 2}},
+            "INVALID_ARGUMENT",
+        ),
         ({"op": "cut", "target": {"kind": "phrase", "text": ""}}, "INVALID_ARGUMENT"),
-        ({"op": "cut", "target": {"kind": "phrase", "text": "thanks", "speaker": 3}}, "INVALID_ARGUMENT"),
+        (
+            {"op": "cut", "target": {"kind": "phrase", "text": "thanks", "speaker": 3}},
+            "INVALID_ARGUMENT",
+        ),
         ({"op": "cut", "target": {"kind": "topic", "query": ""}}, "INVALID_ARGUMENT"),
-        ({"op": "cut", "target": {"kind": "topic", "query": "pricing", "speaker": False}}, "INVALID_ARGUMENT"),
+        (
+            {"op": "cut", "target": {"kind": "topic", "query": "pricing", "speaker": False}},
+            "INVALID_ARGUMENT",
+        ),
         ({"op": "restore", "target": {"kind": "edit"}}, "INVALID_ARGUMENT"),
-        ({"op": "reorder", "target": _time(0, 1), "before": {"kind": "phrase", "phrase": "thanks", "speaker": 3}}, "BAD_RANGE"),
+        (
+            {
+                "op": "reorder",
+                "target": _time(0, 1),
+                "before": {"kind": "phrase", "phrase": "thanks", "speaker": 3},
+            },
+            "BAD_RANGE",
+        ),
         ({"op": "reorder", "target": _time(0, 1), "before": {"kind": "time"}}, "BAD_RANGE"),
         ({"target": _time(0, 1)}, "INVALID_ARGUMENT"),
-        ({"op": "add_caption", "text": "Welcome", "target": _time(1, 2), "style": []}, "INVALID_ARGUMENT"),
+        (
+            {"op": "add_caption", "text": "Welcome", "target": _time(1, 2), "style": []},
+            "INVALID_ARGUMENT",
+        ),
     ]
     for op, code in invalid:
         response = _say(
@@ -800,16 +860,23 @@ def test_target_forms_topic_and_invalid_structured_intents():
 
     assert _say(_session(), instruction="empty")["error"]["code"] == "INVALID_ARGUMENT"
     assert _say(_session(), 5, instruction="not a mapping")["error"]["code"] == "INVALID_ARGUMENT"
-    assert handle_instruction(_session(), "not an operation list")["error"]["code"] == "INVALID_ARGUMENT"
-    assert handle_instruction(
-        _session(), [{"op": "undo"}], instruction=4
-    )["error"]["code"] == "INVALID_ARGUMENT"
-    assert _say(
-        _session(),
-        {"op": "undo"},
-        {"op": "cut", "target": _time(0, 1)},
-        instruction="mixed undo",
-    )["error"]["code"] == "INVALID_ARGUMENT"
+    assert (
+        handle_instruction(_session(), "not an operation list")["error"]["code"]
+        == "INVALID_ARGUMENT"
+    )
+    assert (
+        handle_instruction(_session(), [{"op": "undo"}], instruction=4)["error"]["code"]
+        == "INVALID_ARGUMENT"
+    )
+    assert (
+        _say(
+            _session(),
+            {"op": "undo"},
+            {"op": "cut", "target": _time(0, 1)},
+            instruction="mixed undo",
+        )["error"]["code"]
+        == "INVALID_ARGUMENT"
+    )
     caption_session = _session()
     _say(
         caption_session,
@@ -1056,7 +1123,11 @@ def test_caption_time_summary_updates_after_preceding_cut():
     session = _session()
     _say(
         session,
-        {"op": "add_caption", "text": "Welcome!", "target": {"kind": "phrase", "text": "welcome to the channel"}},
+        {
+            "op": "add_caption",
+            "text": "Welcome!",
+            "target": {"kind": "phrase", "text": "welcome to the channel"},
+        },
         instruction="add welcome caption",
     )
     result = _say(
@@ -1077,11 +1148,13 @@ def test_handler_wrapper_pending_absent_and_operation_serializer_guard():
 
 
 def test_two_occurrence_ambiguity_uses_and_separator_and_unknown_choice_reasks():
-    transcript = _transcript([
-        ("thanks", 1, 1.2, 0.9),
-        ("pause", 2, 2.2, 0.9),
-        ("thanks", 3, 3.2, 0.9),
-    ])
+    transcript = _transcript(
+        [
+            ("thanks", 1, 1.2, 0.9),
+            ("pause", 2, 2.2, 0.9),
+            ("thanks", 3, 3.2, 0.9),
+        ]
+    )
     session = _session(5, transcript)
     question = _say(
         session,
@@ -1093,8 +1166,11 @@ def test_two_occurrence_ambiguity_uses_and_separator_and_unknown_choice_reasks()
 
 
 def test_repeated_original_time_target_is_no_change_for_each_time_form():
-    for target in (_time(1, 2, "original"), {"kind": "time", "from_start": 2, "policy": "original"},
-                   {"kind": "time", "from_end": 2, "policy": "original"}):
+    for target in (
+        _time(1, 2, "original"),
+        {"kind": "time", "from_start": 2, "policy": "original"},
+        {"kind": "time", "from_end": 2, "policy": "original"},
+    ):
         session = _session()
         _say(session, {"op": "cut", "target": target}, instruction="prior cut")
         conflict = _say(session, {"op": "cut", "target": target}, instruction="repeat source range")

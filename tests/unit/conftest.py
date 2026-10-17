@@ -14,13 +14,12 @@ from __future__ import annotations
 import pytest
 
 from incubrix.engine.models import (
+    Sentence,
     SourceInfo,
     Transcript,
     Word,
-    Sentence,
     make_word_id,
 )
-
 
 FPS = 30.0
 DURATION_S = 300.0  # 5 minutes

@@ -15,7 +15,6 @@ Rules implemented here:
 
 from __future__ import annotations
 
-
 from incubrix.engine.models import (
     Anchor,
     Effect,
@@ -25,10 +24,8 @@ from incubrix.engine.models import (
     OverlayStatus,
     Segment,
     Transcript,
-    segment_output_length,
 )
 from incubrix.engine.timeline import is_word_alive
-
 
 # ── Internal segment-splitting helper ────────────────────────────
 
@@ -95,9 +92,7 @@ def update_overlay_statuses(
         if not indices:
             updated.append(ov)
             continue
-        alive_count = sum(
-            1 for i in indices if is_word_alive(transcript.words[i], segments, fps)
-        )
+        alive_count = sum(1 for i in indices if is_word_alive(transcript.words[i], segments, fps))
         total = len(indices)
         if alive_count == 0:
             if ov.status != OverlayStatus.DORMANT:
@@ -108,7 +103,8 @@ def update_overlay_statuses(
             new_status = OverlayStatus.DORMANT
         elif alive_count < total:
             if ov.status == OverlayStatus.ACTIVE or (
-                ov.status == OverlayStatus.PARTIAL and alive_count != ov.original_word_count - (total - alive_count)
+                ov.status == OverlayStatus.PARTIAL
+                and alive_count != ov.original_word_count - (total - alive_count)
             ):
                 warnings.append(
                     f"Caption '{ov.text}' (id={ov.id}) now covers {alive_count} of "

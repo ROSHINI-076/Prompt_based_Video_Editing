@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
-from pydantic import ValidationError
-
 from incubrix.engine.models import (
     Anchor,
     CutOp,
     Edit,
-    MusicSettings,
     Overlay,
     OverlayStatus,
     Segment,
-    SourceInfo,
-    Transcript,
     Word,
     make_word_id,
     segment_output_length,
@@ -67,8 +61,13 @@ class TestWord:
 
     def test_custom_fields(self):
         w = Word(
-            id="w0002", text="world", start_s=0.5, end_s=0.9,
-            speaker="Alice", confidence=0.8, flags=["low_confidence"]
+            id="w0002",
+            text="world",
+            start_s=0.5,
+            end_s=0.9,
+            speaker="Alice",
+            confidence=0.8,
+            flags=["low_confidence"],
         )
         assert w.speaker == "Alice"
         assert "low_confidence" in w.flags

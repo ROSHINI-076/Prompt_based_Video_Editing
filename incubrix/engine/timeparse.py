@@ -21,28 +21,55 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
-
 
 # ── Number-word tables ────────────────────────────────────────────
 
 _ONES: dict[str, int] = {
-    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
-    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
-    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
-    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
-    "eighteen": 18, "nineteen": 19,
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
 }
 _TENS: dict[str, int] = {
-    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
 }
 _MULTIPLIERS: dict[str, int] = {
-    "hundred": 100, "thousand": 1000,
+    "hundred": 100,
+    "thousand": 1000,
 }
 _UNIT: dict[str, float] = {
-    "second": 1.0, "seconds": 1.0, "sec": 1.0, "secs": 1.0,
-    "minute": 60.0, "minutes": 60.0, "min": 60.0, "mins": 60.0,
-    "hour": 3600.0, "hours": 3600.0, "hr": 3600.0, "hrs": 3600.0,
+    "second": 1.0,
+    "seconds": 1.0,
+    "sec": 1.0,
+    "secs": 1.0,
+    "minute": 60.0,
+    "minutes": 60.0,
+    "min": 60.0,
+    "mins": 60.0,
+    "hour": 3600.0,
+    "hours": 3600.0,
+    "hr": 3600.0,
+    "hrs": 3600.0,
 }
 
 
@@ -52,6 +79,7 @@ _UNIT: dict[str, float] = {
 @dataclass
 class TimePoint:
     """A single instant in time, in seconds."""
+
     seconds: float
 
 
@@ -62,10 +90,11 @@ class TimeRange:
     from_start: set for 'the first N seconds' (start=0, end=N)
     from_end:   set for 'the last N seconds' (needs duration to resolve)
     """
-    start: Optional[float] = None
-    end: Optional[float] = None
-    from_start: Optional[float] = None
-    from_end: Optional[float] = None
+
+    start: float | None = None
+    end: float | None = None
+    from_start: float | None = None
+    from_end: float | None = None
 
 
 # ── Number-word parser ────────────────────────────────────────────

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Literal
+from typing import Literal
 
 from incubrix.engine.models import (
     CutOp,
@@ -14,7 +15,6 @@ from incubrix.engine.models import (
     Segment,
     Timeline,
     Transcript,
-    Word,
 )
 from incubrix.engine.ops import snap_to_silence
 from incubrix.engine.timeline import (
@@ -150,8 +150,7 @@ def _format_ranges(ranges: list[tuple[int, int]], fps: float) -> str:
     if not ranges:
         return "no surviving source interval"
     return ", ".join(
-        f"{_format_time(start / fps)}-{_format_time(end / fps)}"
-        for start, end in ranges
+        f"{_format_time(start / fps)}-{_format_time(end / fps)}" for start, end in ranges
     )
 
 
@@ -219,7 +218,10 @@ class Resolver:
         return f"Times read as original time: {label} = {original} in the original."
 
     def _failure(
-        self, code: Literal["NO_MATCH", "OUT_OF_RANGE", "BAD_RANGE"], detail: str, policy: TimePolicy
+        self,
+        code: Literal["NO_MATCH", "OUT_OF_RANGE", "BAD_RANGE"],
+        detail: str,
+        policy: TimePolicy,
     ) -> Resolution:
         return Resolution(
             status=code,
@@ -228,18 +230,14 @@ class Resolver:
             note=self._note(policy, detail),
         )
 
-    def _source_ranges_for_current(
-        self, start_f: int, end_f: int
-    ) -> list[tuple[int, int]]:
+    def _source_ranges_for_current(self, start_f: int, end_f: int) -> list[tuple[int, int]]:
         return self.layout.out_range_to_src_ranges(start_f, end_f)
 
     def _resolve_time_bounds(self, target: TimeTarget) -> tuple[int, int, bool] | Resolution:
         policy = target.policy
         if policy not in ("current", "original"):
             return self._failure("BAD_RANGE", f"Unknown time policy: {policy}", "current")
-        duration_f = (
-            self._current_duration_f if policy == "current" else self._source_duration_f
-        )
+        duration_f = self._current_duration_f if policy == "current" else self._source_duration_f
         duration_s = duration_f / self.fps
         values = (target.start, target.end, target.from_start, target.from_end)
         if sum(value is not None for value in values) not in (1, 2):
@@ -251,11 +249,15 @@ class Resolver:
         if target.from_start is not None and any(
             value is not None for value in (target.start, target.end, target.from_end)
         ):
-            return self._failure("BAD_RANGE", "from_start cannot be combined with other bounds.", policy)
+            return self._failure(
+                "BAD_RANGE", "from_start cannot be combined with other bounds.", policy
+            )
         if target.from_end is not None and any(
             value is not None for value in (target.start, target.end, target.from_start)
         ):
-            return self._failure("BAD_RANGE", "from_end cannot be combined with other bounds.", policy)
+            return self._failure(
+                "BAD_RANGE", "from_end cannot be combined with other bounds.", policy
+            )
 
         if target.from_start is not None:
             start_s, end_s = 0.0, target.from_start
@@ -290,7 +292,9 @@ class Resolver:
         else:
             ranges = [(start_f, end_f)]
         if not ranges:
-            return self._failure("NO_MATCH", "The requested time range has no surviving video.", target.policy)
+            return self._failure(
+                "NO_MATCH", "The requested time range has no surviving video.", target.policy
+            )
 
         start_s = start_f / self.fps
         end_s = end_f / self.fps
@@ -332,16 +336,13 @@ class Resolver:
             indices = tuple(range(start, start + len(query)))
             if speaker is not None and any(words[i].speaker != speaker for i in indices):
                 continue
-            if alive_only and any(
-                not is_word_alive(words[i], segments, self.fps) for i in indices
-            ):
+            if alive_only and any(not is_word_alive(words[i], segments, self.fps) for i in indices):
                 continue
             flat_tokens = [token for i in indices for token in transcript_tokens[i]]
             if flat_tokens != query:
                 continue
             midpoint_out = [
-                layout.src_to_out(word_midpoint_frame(words[i], self.fps))
-                for i in indices
+                layout.src_to_out(word_midpoint_frame(words[i], self.fps)) for i in indices
             ]
             mapped = [frame for frame in midpoint_out if frame is not None]
             if not mapped:
@@ -357,9 +358,7 @@ class Resolver:
         return matches
 
     def _snapped_match_range(self, match: _Match) -> tuple[int, int]:
-        return snap_to_silence(
-            match.indices[0], match.indices[-1], self.transcript, self.fps
-        )
+        return snap_to_silence(match.indices[0], match.indices[-1], self.transcript, self.fps)
 
     def _match_option(self, choice: int, match: _Match) -> ResolutionOption:
         start_s = match.current_start_f / self.fps
@@ -381,10 +380,7 @@ class Resolver:
         for option in options:
             if option.current_start_s is None or option.current_end_s is None:
                 continue
-            current = (
-                f"{_format_time(option.current_start_s)}-"
-                f"{_format_time(option.current_end_s)}"
-            )
+            current = f"{_format_time(option.current_start_s)}-{_format_time(option.current_end_s)}"
             original = _format_ranges(list(option.source_ranges), self.fps)
             conversions.append(f"{current} = {original} original")
         if not conversions:
@@ -395,18 +391,10 @@ class Resolver:
                     if option.edit_id is not None
                 ]
                 if originals:
-                    return (
-                        f"Times read as original time: {label}; "
-                        + "; ".join(originals)
-                        + "."
-                    )
+                    return f"Times read as original time: {label}; " + "; ".join(originals) + "."
             return self._note(policy, label)
         if policy == "current":
-            return (
-                f"Times read as current (edited) time: {label}; "
-                + "; ".join(conversions)
-                + "."
-            )
+            return f"Times read as current (edited) time: {label}; " + "; ".join(conversions) + "."
         return f"Times read as original time: {label}; " + "; ".join(conversions) + "."
 
     def _choose_match(
@@ -444,9 +432,7 @@ class Resolver:
             return self.layout.out_range_to_src_ranges(boundary_out, self._current_duration_f)
         boundary_out = self.layout.src_to_out(snap_start)
         if boundary_out is None:
-            first_word_start = round(
-                self.transcript.words[match.indices[0]].start_s * self.fps
-            )
+            first_word_start = round(self.transcript.words[match.indices[0]].start_s * self.fps)
             boundary_out = self.layout.src_to_out(first_word_start)
             if boundary_out is None:
                 boundary_out = match.current_start_f
@@ -459,13 +445,12 @@ class Resolver:
             dead = self._phrase_matches_all_words(target.text, target.speaker)
             detail = (
                 f"'{target.text}' occurs only in cut regions."
-                if dead else f"No alive transcript match for '{target.text}'."
+                if dead
+                else f"No alive transcript match for '{target.text}'."
             )
             return self._failure("NO_MATCH", detail, "current")
 
-        selected, options, all_matches = self._choose_match(
-            matches, target.choice
-        )
+        selected, options, all_matches = self._choose_match(matches, target.choice)
         if selected is None and not all_matches:
             return Resolution(
                 status="AMBIGUOUS",
@@ -549,9 +534,13 @@ class Resolver:
                 continue
             alive_indices = tuple(i for i in all_indices if self._is_alive(i))
             if not alive_indices:
-                dead_match = dead_match or keyword_match or (
-                    self.embedder is not None
-                    and self.embedder(target.query, sentence_text) >= self.embedder_threshold
+                dead_match = (
+                    dead_match
+                    or keyword_match
+                    or (
+                        self.embedder is not None
+                        and self.embedder(target.query, sentence_text) >= self.embedder_threshold
+                    )
                 )
                 continue
             alive_text = " ".join(self.transcript.words[i].text for i in alive_indices)
@@ -564,9 +553,7 @@ class Resolver:
                 dead_match = dead_match or keyword_match
                 continue
             output_frames = [
-                self.layout.src_to_out(
-                    word_midpoint_frame(self.transcript.words[i], self.fps)
-                )
+                self.layout.src_to_out(word_midpoint_frame(self.transcript.words[i], self.fps))
                 for i in alive_indices
             ]
             output_frames = [frame for frame in output_frames if frame is not None]
@@ -581,7 +568,8 @@ class Resolver:
         if not matches:
             detail = (
                 f"Matches for '{target.query}' exist only in cut regions."
-                if dead_match else f"No sentence matches '{target.query}'."
+                if dead_match
+                else f"No sentence matches '{target.query}'."
             )
             return self._failure("NO_MATCH", detail, "current")
 
@@ -627,11 +615,8 @@ class Resolver:
         options: list[ResolutionOption] = []
         for i, display in enumerate(displays):
             ranges = (
-                self.layout.out_range_to_src_ranges(
-                    display["start_out_f"], display["end_out_f"]
-                )
-                if display["start_out_f"] is not None
-                and display["end_out_f"] is not None
+                self.layout.out_range_to_src_ranges(display["start_out_f"], display["end_out_f"])
+                if display["start_out_f"] is not None and display["end_out_f"] is not None
                 else []
             )
             display_ranges_by_overlay[display["overlay_id"]] = ranges
@@ -649,17 +634,17 @@ class Resolver:
         original_ranges = [rng for group in display_ranges for rng in group]
         note = self._note("current", "caption display times", original_ranges)
         if len(options) > 1 and target.choice is None:
-            caption_note = self._ambiguous_note(
-                "caption display times", options
-            )
+            caption_note = self._ambiguous_note("caption display times", options)
             return Resolution(
                 status="AMBIGUOUS",
                 options=options + [ResolutionOption(choice="all", snippet="All captions")],
                 note=caption_note,
                 detail="Choose a numbered caption or all.",
             )
-        if len(options) > 1 and isinstance(target.choice, str) and (
-            target.choice.strip().casefold() == "all"
+        if (
+            len(options) > 1
+            and isinstance(target.choice, str)
+            and (target.choice.strip().casefold() == "all")
         ):
             chosen = options
         elif len(options) > 1:
@@ -675,9 +660,7 @@ class Resolver:
         else:
             chosen = options
         selected_ranges = [
-            source_range
-            for option in chosen
-            for source_range in option.source_ranges
+            source_range for option in chosen for source_range in option.source_ranges
         ]
         return Resolution(
             status="RESOLVED",
@@ -723,8 +706,7 @@ class Resolver:
         """Find active cut/keep edits eligible for restoration."""
         active = self._active_edit_ids()
         candidates = [
-            edit for edit in self.edits
-            if edit.id in active and self._cut_ranges_for_edit(edit)
+            edit for edit in self.edits if edit.id in active and self._cut_ranges_for_edit(edit)
         ]
         if target.edit_id is not None:
             candidates = [edit for edit in candidates if edit.id == target.edit_id]
@@ -739,9 +721,12 @@ class Resolver:
             start_f = round(start_s * self.fps)
             end_f = min(round(end_s * self.fps), self._source_duration_f)
             if start_f >= self._source_duration_f:
-                return self._failure("OUT_OF_RANGE", "Overlap start is beyond the video.", "original")
+                return self._failure(
+                    "OUT_OF_RANGE", "Overlap start is beyond the video.", "original"
+                )
             candidates = [
-                edit for edit in candidates
+                edit
+                for edit in candidates
                 if any(a < end_f and b > start_f for a, b in self._cut_ranges_for_edit(edit))
             ]
         elif not target.any:
@@ -759,7 +744,9 @@ class Resolver:
             for i, edit in enumerate(candidates)
         ]
         if not options:
-            return self._failure("NO_MATCH", "No active cut/keep edits can be restored.", "original")
+            return self._failure(
+                "NO_MATCH", "No active cut/keep edits can be restored.", "original"
+            )
         if len(options) > 1 and target.choice is None:
             note = self._ambiguous_note("restore candidate selection", options, "original")
             return Resolution(
@@ -768,8 +755,10 @@ class Resolver:
                 note=note,
                 detail="Choose a numbered edit or all.",
             )
-        if len(options) > 1 and isinstance(target.choice, str) and (
-            target.choice.strip().casefold() == "all"
+        if (
+            len(options) > 1
+            and isinstance(target.choice, str)
+            and (target.choice.strip().casefold() == "all")
         ):
             chosen = options
         elif len(options) > 1:
@@ -777,7 +766,8 @@ class Resolver:
             if index is None:
                 return Resolution(
                     status="AMBIGUOUS",
-                    options=options + [ResolutionOption(choice="all", snippet="All candidate edits")],
+                    options=options
+                    + [ResolutionOption(choice="all", snippet="All candidate edits")],
                     note=self._ambiguous_note("restore candidate selection", options, "original"),
                     detail="Choose a valid numbered edit or all.",
                 )
@@ -799,7 +789,8 @@ class Resolver:
             frame = self.timeline.segments[0].src_in_f
             ranges = [(frame, frame)]
             return Resolution(
-                status="RESOLVED", destination_frame=frame,
+                status="RESOLVED",
+                destination_frame=frame,
                 note=self._note("current", "start of current video", ranges),
             )
         if target.kind == "end":
@@ -808,7 +799,8 @@ class Resolver:
             frame = self.timeline.segments[-1].src_out_f
             ranges = [(frame, frame)]
             return Resolution(
-                status="RESOLVED", destination_frame=frame,
+                status="RESOLVED",
+                destination_frame=frame,
                 note=self._note("current", "end of current video", ranges),
             )
         if target.kind == "time":
@@ -821,10 +813,13 @@ class Resolver:
                 if time_f == self._current_duration_f and self.timeline.segments:
                     frame = self.timeline.segments[-1].src_out_f
                     return Resolution(
-                        status="RESOLVED", destination_frame=frame,
+                        status="RESOLVED",
+                        destination_frame=frame,
                         note=self._note("current", "end of current video", [(frame, frame)]),
                     )
-                return self._failure("OUT_OF_RANGE", "Destination time is beyond the video.", "current")
+                return self._failure(
+                    "OUT_OF_RANGE", "Destination time is beyond the video.", "current"
+                )
             frame = self.layout.out_to_src(time_f)
             if frame is None:
                 return self._failure("NO_MATCH", "No source frame at destination time.", "current")
@@ -832,7 +827,8 @@ class Resolver:
                 status="RESOLVED",
                 destination_frame=frame,
                 note=self._note(
-                    "current", f"destination {_format_time(target.time_s or 0)}",
+                    "current",
+                    f"destination {_format_time(target.time_s or 0)}",
                     [(frame, frame)],
                 ),
             )
@@ -845,14 +841,14 @@ class Resolver:
         if selected is None:
             if all_matches or target.choice is not None:
                 return self._failure(
-                    "BAD_RANGE", "A reorder destination must resolve to exactly one phrase.", "current"
+                    "BAD_RANGE",
+                    "A reorder destination must resolve to exactly one phrase.",
+                    "current",
                 )
             return Resolution(
                 status="AMBIGUOUS",
                 options=options,
-                note=self._ambiguous_note(
-                    f"reorder destination '{target.phrase}'", options
-                ),
+                note=self._ambiguous_note(f"reorder destination '{target.phrase}'", options),
                 detail="Choose one phrase occurrence.",
             )
         destination = self._snapped_match_range(selected)[0]
@@ -860,5 +856,7 @@ class Resolver:
             status="RESOLVED",
             destination_frame=destination,
             word_ids=[self.transcript.words[i].id for i in selected.indices],
-            note=self._note("current", f"reorder before '{target.phrase}'", [(destination, destination)]),
+            note=self._note(
+                "current", f"reorder before '{target.phrase}'", [(destination, destination)]
+            ),
         )

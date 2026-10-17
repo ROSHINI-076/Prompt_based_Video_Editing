@@ -10,16 +10,14 @@ And all other listed formats.
 
 from __future__ import annotations
 
-import pytest
-
 from incubrix.engine.timeparse import (
     TimePoint,
     TimeRange,
-    parse_time_expression,
-    resolve_time_range,
     _parse_duration,
     _parse_number_words,
     _parse_timestamp,
+    parse_time_expression,
+    resolve_time_range,
 )
 
 

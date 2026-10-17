@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from incubrix.engine.hashing import canonical_json, timeline_hash, timeline_to_hashable
 from incubrix.engine.models import (
     AddCaptionOp,
@@ -26,8 +24,10 @@ def _src() -> SourceInfo:
 
 
 def _transcript(n: int = 20) -> Transcript:
-    words = [Word(id=make_word_id(i), text=f"w{i}", start_s=i * 0.5, end_s=i * 0.5 + 0.4)
-             for i in range(n)]
+    words = [
+        Word(id=make_word_id(i), text=f"w{i}", start_s=i * 0.5, end_s=i * 0.5 + 0.4)
+        for i in range(n)
+    ]
     return Transcript(words=words)
 
 
@@ -97,20 +97,19 @@ class TestTimelineHash:
         src = _src()
         transcript = _transcript()
         edits = [
+            Edit(id="e1", instruction="cut", ops=[CutOp(ranges=[(0, 90), (150, 180)])]),
+            Edit(id="e2", instruction="speed", ops=[SpeedOp(range=(90, 150), factor=2.0)]),
             Edit(
-                id="e1", instruction="cut",
-                ops=[CutOp(ranges=[(0, 90), (150, 180)])]
-            ),
-            Edit(
-                id="e2", instruction="speed",
-                ops=[SpeedOp(range=(90, 150), factor=2.0)]
-            ),
-            Edit(
-                id="e3", instruction="caption",
-                ops=[AddCaptionOp(
-                    overlay_id="ov1", text="Hi!",
-                    start_word_id=make_word_id(5), end_word_id=make_word_id(7),
-                )]
+                id="e3",
+                instruction="caption",
+                ops=[
+                    AddCaptionOp(
+                        overlay_id="ov1",
+                        text="Hi!",
+                        start_word_id=make_word_id(5),
+                        end_word_id=make_word_id(7),
+                    )
+                ],
             ),
         ]
         hashes = [timeline_hash(replay(src, edits, transcript)) for _ in range(3)]

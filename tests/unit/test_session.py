@@ -8,21 +8,15 @@ Required by spec (Phase 1):
 
 from __future__ import annotations
 
-import pytest
-
 from incubrix.engine.models import (
-    AddCaptionOp,
     CutOp,
     RestoreOp,
     SourceInfo,
-    SpeedOp,
     Transcript,
     Word,
     make_word_id,
-    segment_output_length,
 )
 from incubrix.engine.session import SessionManager
-from incubrix.engine.timeline import total_duration_frames
 
 FPS = 30.0
 

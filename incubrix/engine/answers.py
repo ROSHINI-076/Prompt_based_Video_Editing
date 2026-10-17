@@ -108,8 +108,11 @@ def _response(
         "warnings": warnings or [],
         "timeline_hash": timeline_hash(timeline),
         "duration_s": round(
-            sum(max(1, round((segment.src_out_f - segment.src_in_f) / segment.speed))
-                for segment in timeline.segments) / timeline.source.fps,
+            sum(
+                max(1, round((segment.src_out_f - segment.src_in_f) / segment.speed))
+                for segment in timeline.segments
+            )
+            / timeline.source.fps,
             3,
         ),
         "time_policy": time_policy,
@@ -183,13 +186,15 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
             for name in ("start", "end", "from_start", "from_end")
             if target.get(name) is not None
         }
-        return resolver.resolve_time(TimeTarget(
-            start=bounds.get("start"),
-            end=bounds.get("end"),
-            from_start=bounds.get("from_start"),
-            from_end=bounds.get("from_end"),
-            policy=policy,
-        ))
+        return resolver.resolve_time(
+            TimeTarget(
+                start=bounds.get("start"),
+                end=bounds.get("end"),
+                from_start=bounds.get("from_start"),
+                from_end=bounds.get("from_end"),
+                policy=policy,
+            )
+        )
     if kind == "phrase":
         relation = target.get("relation", "at")
         if relation not in ("at", "before", "after"):
@@ -200,12 +205,14 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
         speaker = target.get("speaker")
         if speaker is not None and not isinstance(speaker, str):
             raise _InputError("INVALID_ARGUMENT", "Phrase speaker must be a string.")
-        return resolver.resolve_phrase(PhraseTarget(
-            text=text,
-            relation=relation,
-            speaker=speaker,
-            choice=choice,
-        ))
+        return resolver.resolve_phrase(
+            PhraseTarget(
+                text=text,
+                relation=relation,
+                speaker=speaker,
+                choice=choice,
+            )
+        )
     if kind == "topic":
         query = target.get("query", target.get("text", ""))
         if not isinstance(query, str) or not query.strip():
@@ -213,36 +220,44 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
         speaker = target.get("speaker")
         if speaker is not None and not isinstance(speaker, str):
             raise _InputError("INVALID_ARGUMENT", "Topic speaker must be a string.")
-        return resolver.resolve_topic(TopicTarget(
-            query=query,
-            speaker=speaker,
-            choice=choice,
-        ))
+        return resolver.resolve_topic(
+            TopicTarget(
+                query=query,
+                speaker=speaker,
+                choice=choice,
+            )
+        )
     if kind == "caption":
         text = target.get("text")
         if text is not None and not isinstance(text, str):
             raise _InputError("INVALID_ARGUMENT", "Caption selection text must be a string.")
-        return resolver.resolve_caption(CaptionTarget(
-            text=text,
-            choice=choice,
-        ))
+        return resolver.resolve_caption(
+            CaptionTarget(
+                text=text,
+                choice=choice,
+            )
+        )
     if kind in ("edit", "overlap", "any"):
         overlap = None
         if kind == "overlap":
             start = target.get("start")
             end = target.get("end")
             if start is None or end is None:
-                raise _InputError("INVALID_ARGUMENT", "Restore overlap requires start and end times.")
+                raise _InputError(
+                    "INVALID_ARGUMENT", "Restore overlap requires start and end times."
+                )
             overlap = (_as_float(start, "Overlap start"), _as_float(end, "Overlap end"))
         edit_id = target.get("edit_id") if kind == "edit" else None
         if kind == "edit" and (not isinstance(edit_id, str) or not edit_id):
             raise _InputError("INVALID_ARGUMENT", "Restore edit target requires an edit id.")
-        return resolver.resolve_restore(RestoreTarget(
-            edit_id=edit_id,
-            overlap=overlap,
-            any=kind == "any",
-            choice=choice,
-        ))
+        return resolver.resolve_restore(
+            RestoreTarget(
+                edit_id=edit_id,
+                overlap=overlap,
+                any=kind == "any",
+                choice=choice,
+            )
+        )
     raise _InputError("INVALID_ARGUMENT", f"Unsupported target kind: {kind!r}.")
 
 
@@ -261,20 +276,24 @@ def _destination_resolution(value: Any, resolver: Resolver) -> Resolution:
         speaker = value.get("speaker")
         if speaker is not None and not isinstance(speaker, str):
             raise _InputError("BAD_RANGE", "A reorder destination speaker must be a string.")
-        return resolver.resolve_reorder_destination(ReorderDestination(
-            kind="phrase",
-            phrase=phrase,
-            speaker=value.get("speaker"),
-            choice=value.get("choice"),
-        ))
+        return resolver.resolve_reorder_destination(
+            ReorderDestination(
+                kind="phrase",
+                phrase=phrase,
+                speaker=value.get("speaker"),
+                choice=value.get("choice"),
+            )
+        )
     if kind == "time":
         time_s = value.get("time_s", value.get("time"))
         if time_s is None:
             raise _InputError("BAD_RANGE", "A reorder time destination requires a time.")
-        return resolver.resolve_reorder_destination(ReorderDestination(
-            kind="time",
-            time_s=_as_float(time_s, "Destination time", error_code="BAD_RANGE"),
-        ))
+        return resolver.resolve_reorder_destination(
+            ReorderDestination(
+                kind="time",
+                time_s=_as_float(time_s, "Destination time", error_code="BAD_RANGE"),
+            )
+        )
     if kind in ("start", "end"):
         return resolver.resolve_reorder_destination(ReorderDestination(kind=kind))
     raise _InputError("BAD_RANGE", "Reorder destination must be start, end, time, or phrase.")
@@ -285,9 +304,7 @@ def _active_target_path(op: Mapping, resolver: Resolver) -> tuple[Resolution, st
         source = _target_resolution(op.get("target"), resolver)
         if source.status != "RESOLVED":
             return source, "target"
-        destination = _destination_resolution(
-            op.get("before", op.get("destination")), resolver
-        )
+        destination = _destination_resolution(op.get("before", op.get("destination")), resolver)
         return destination, "before"
     return _target_resolution(op.get("target"), resolver), "target"
 
@@ -346,16 +363,21 @@ def _resolve_part(
         raise _InputError("INVALID_ARGUMENT", "An operation requires a non-empty name.")
     name = raw_name
     supported = {
-        "cut", "keep_only", "speed", "reorder", "add_caption", "style",
-        "mute", "bleep", "restore",
+        "cut",
+        "keep_only",
+        "speed",
+        "reorder",
+        "add_caption",
+        "style",
+        "mute",
+        "bleep",
+        "restore",
     }
     if name not in supported:
         raise _InputError("UNSUPPORTED_OPERATION", f"Unsupported instruction operation: {name!r}.")
     speed_factor = 0.0
     if name == "speed":
-        speed_factor = _as_float(
-            op.get("factor"), "Speed factor", error_code="INVALID_SPEED"
-        )
+        speed_factor = _as_float(op.get("factor"), "Speed factor", error_code="INVALID_SPEED")
         if not MIN_SPEED <= speed_factor <= MAX_SPEED:
             raise _InputError(
                 "INVALID_SPEED",
@@ -373,7 +395,9 @@ def _resolve_part(
     if name == "style":
         style = op.get("style")
         if not isinstance(style, Mapping) or not style:
-            raise _InputError("INVALID_ARGUMENT", "A style operation requires a non-empty style object.")
+            raise _InputError(
+                "INVALID_ARGUMENT", "A style operation requires a non-empty style object."
+            )
     resolved, ambiguous_path = _active_target_path(op, resolver)
     if resolved.status != "RESOLVED":
         return [], resolved, ambiguous_path, name
@@ -384,20 +408,29 @@ def _resolve_part(
         return [CutOp(ranges=resolved.source_ranges)], None, "", name
     if name == "keep_only":
         if len(resolved.source_ranges) != 1:
-            raise _InputError("INVALID_ARGUMENT", "Keep-only must resolve to exactly one continuous range.")
+            raise _InputError(
+                "INVALID_ARGUMENT", "Keep-only must resolve to exactly one continuous range."
+            )
         return [KeepOnlyOp(range=resolved.source_ranges[0])], None, "", name
     if name == "speed":
         if not resolved.source_ranges:
             raise _InputError("NO_MATCH", "The speed target has no surviving source range.")
-        return [
-            SpeedOp(range=source_range, factor=speed_factor)
-            for source_range in resolved.source_ranges
-        ], None, "", name
+        return (
+            [
+                SpeedOp(range=source_range, factor=speed_factor)
+                for source_range in resolved.source_ranges
+            ],
+            None,
+            "",
+            name,
+        )
     if name == "reorder":
         source_result = _target_resolution(op.get("target"), resolver)
         assert source_result.status == "RESOLVED"
         if len(source_result.source_ranges) != 1:
-            raise _InputError("INVALID_ARGUMENT", "Reorder must resolve to one continuous source range.")
+            raise _InputError(
+                "INVALID_ARGUMENT", "Reorder must resolve to one continuous source range."
+            )
         destination = resolved.destination_frame
         assert destination is not None
         return [ReorderOp(range=source_result.source_ranges[0], before=destination)], None, "", name
@@ -413,21 +446,28 @@ def _resolve_part(
         caption_ops = []
         for group_index, group in enumerate(groups):
             overlay_id = f"{edit_id}_ov{part_index + 1}_{group_index + 1}"
-            caption_ops.append(AddCaptionOp(
-                overlay_id=overlay_id,
-                text=text,
-                start_word_id=group[0].id,
-                end_word_id=group[-1].id,
-                style=dict(op.get("style", {})),
-            ))
+            caption_ops.append(
+                AddCaptionOp(
+                    overlay_id=overlay_id,
+                    text=text,
+                    start_word_id=group[0].id,
+                    end_word_id=group[-1].id,
+                    style=dict(op.get("style", {})),
+                )
+            )
         return caption_ops, None, "", name
     if name == "style":
         style = op.get("style")
         assert resolved.overlay_ids
-        return [
-            StyleOp(overlay_id=overlay_id, style=dict(style))
-            for overlay_id in resolved.overlay_ids
-        ], None, "", name
+        return (
+            [
+                StyleOp(overlay_id=overlay_id, style=dict(style))
+                for overlay_id in resolved.overlay_ids
+            ],
+            None,
+            "",
+            name,
+        )
     if name in ("mute", "bleep"):
         word_ids = resolved.word_ids or _words_for_ranges(
             resolved.source_ranges, resolver.transcript, resolver
@@ -439,18 +479,22 @@ def _resolve_part(
         for group_index, group in enumerate(groups):
             effect_id = f"{edit_id}_fx{part_index + 1}_{group_index + 1}"
             cls = MuteOp if name == "mute" else BleepOp
-            effects.append(cls(
-                effect_id=effect_id,
-                start_word_id=group[0].id,
-                end_word_id=group[-1].id,
-            ))
+            effects.append(
+                cls(
+                    effect_id=effect_id,
+                    start_word_id=group[0].id,
+                    end_word_id=group[-1].id,
+                )
+            )
         return effects, None, "", name
     if name == "restore":
         assert resolved.edit_ids
-        return [
-            RestoreOp(target_edit_id=target_edit_id)
-            for target_edit_id in resolved.edit_ids
-        ], None, "", name
+        return (
+            [RestoreOp(target_edit_id=target_edit_id) for target_edit_id in resolved.edit_ids],
+            None,
+            "",
+            name,
+        )
 
 
 def _resolution_error(resolution: Resolution, operation: str) -> tuple[str, str, Any]:
@@ -476,10 +520,12 @@ def _conflicting_cut(intent: Mapping, resolver: Resolver) -> tuple[str, str] | N
             start = max(0, duration - round(float(target["from_end"]) * fps))
             source_ranges = [(start, duration)]
         elif target.get("start") is not None and target.get("end") is not None:
-            source_ranges = [(
-                max(0, round(float(target["start"]) * fps)),
-                min(duration, round(float(target["end"]) * fps)),
-            )]
+            source_ranges = [
+                (
+                    max(0, round(float(target["start"]) * fps)),
+                    min(duration, round(float(target["end"]) * fps)),
+                )
+            ]
     elif target.get("kind") == "phrase":
         matches = resolver._phrase_matches_all_words(
             str(target.get("text", "")), target.get("speaker")
@@ -524,14 +570,10 @@ def _clarification_question(op: Mapping, resolution: Resolution) -> str:
             location = f"{positions[0]} and {positions[1]}"
         else:
             location = ", ".join(positions[:-1]) + f" and {positions[-1]}"
-        return (
-            f"'{query}' is mentioned {len(matches)} times at {location}. "
-            "Which one, or all?"
-        )
+        return f"'{query}' is mentioned {len(matches)} times at {location}. Which one, or all?"
     if matches:
         labels = [
-            f"{option.edit_id}: {option.snippet}"
-            if option.edit_id else option.snippet
+            f"{option.edit_id}: {option.snippet}" if option.edit_id else option.snippet
             for option in matches
         ]
         return f"Which match do you mean ({'; '.join(labels)}), or all?"
@@ -576,7 +618,9 @@ def _format_operation(op: AnyOp, fps: float) -> dict:
     raise TypeError(f"Unsupported resolved operation type: {type(op).__name__}")
 
 
-def _output_spans(timeline: Any, transcript: Transcript) -> dict[str, tuple[str, int | None, int | None]]:
+def _output_spans(
+    timeline: Any, transcript: Transcript
+) -> dict[str, tuple[str, int | None, int | None]]:
     projection = timeline_to_output(timeline, transcript)
     return {
         display["overlay_id"]: (
@@ -599,7 +643,9 @@ def _new_timeline_warnings(before: Sequence[str], after: Sequence[str]) -> list[
     return result
 
 
-def _response_timeline_warnings(before: Sequence[str], after: Sequence[str]) -> tuple[list[str], list[str]]:
+def _response_timeline_warnings(
+    before: Sequence[str], after: Sequence[str]
+) -> tuple[list[str], list[str]]:
     display_warnings: list[str] = []
     summary_warnings: list[str] = []
     for warning in _new_timeline_warnings(before, after):
@@ -655,9 +701,7 @@ def _target_signature(intent: Mapping) -> tuple | None:
     if not isinstance(target, Mapping):
         return None
     kind = target.get("kind")
-    if kind is None and any(
-        key in target for key in ("start", "end", "from_start", "from_end")
-    ):
+    if kind is None and any(key in target for key in ("start", "end", "from_start", "from_end")):
         kind = "time"
     if kind == "time":
         policy = target.get("policy", "current")
@@ -671,16 +715,14 @@ def _target_signature(intent: Mapping) -> tuple | None:
             keys = form[1:]
             if all(key in target and target[key] is not None for key in keys):
                 try:
-                    values = tuple(
-                        _as_float(target[key], key) for key in keys
-                    )
+                    values = tuple(_as_float(target[key], key) for key in keys)
                 except _InputError:
                     return None
                 return ("time", policy, name, *values)
         return None
     if kind in ("phrase", "topic"):
-        selector = target.get("text") if kind == "phrase" else target.get(
-            "query", target.get("text")
+        selector = (
+            target.get("text") if kind == "phrase" else target.get("query", target.get("text"))
         )
         if not isinstance(selector, str):
             return None
@@ -719,20 +761,14 @@ def _repeat_match(
         for intent in previous.intent_ops
         if _destructive_intent(intent)
     }
-    resolver = Resolver(
-        session.get_timeline(), session.state.transcript, session.state.stack
-    )
+    resolver = Resolver(session.get_timeline(), session.state.transcript, session.state.stack)
     for index, intent in enumerate(intent_ops):
         if not _destructive_intent(intent):
             continue
         signature = _target_signature(intent)
-        if signature is None or (
-            intent.get("op"), signature
-        ) not in prior_signatures:
+        if signature is None or (intent.get("op"), signature) not in prior_signatures:
             continue
-        if current_only and (
-            signature[0] != "time" or signature[1] != "current"
-        ):
+        if current_only and (signature[0] != "time" or signature[1] != "current"):
             continue
         try:
             resolution = _target_resolution(intent.get("target"), resolver)
@@ -749,8 +785,7 @@ def _same_target_as_last_active_edit(session: SessionManager, intent: Mapping) -
         return False
     signature = _target_signature(intent)
     return signature is not None and any(
-        prior.get("op") == intent.get("op")
-        and _target_signature(prior) == signature
+        prior.get("op") == intent.get("op") and _target_signature(prior) == signature
         for prior in previous.intent_ops
     )
 
@@ -758,10 +793,13 @@ def _same_target_as_last_active_edit(session: SessionManager, intent: Mapping) -
 def _repeat_question(intent: Mapping, resolution: Resolution, session: SessionManager) -> str:
     target = _target_dict(intent.get("target"))
     timeline = session.get_timeline()
-    duration_s = sum(
-        max(1, round((segment.src_out_f - segment.src_in_f) / segment.speed))
-        for segment in timeline.segments
-    ) / timeline.source.fps
+    duration_s = (
+        sum(
+            max(1, round((segment.src_out_f - segment.src_in_f) / segment.speed))
+            for segment in timeline.segments
+        )
+        / timeline.source.fps
+    )
     if target.get("from_start") is not None:
         start_s, end_s = 0.0, min(float(target["from_start"]), duration_s)
     elif target.get("from_end") is not None:
@@ -795,12 +833,23 @@ def _answer_choice(answer_text: str) -> int | str | None:
         return "all"
     normalized = re.sub(r"\s+one$", "", normalized)
     ordinals = {
-        "first": 1, "1st": 1, "one": 1,
-        "second": 2, "2nd": 2, "two": 2,
-        "third": 3, "3rd": 3, "three": 3,
-        "fourth": 4, "4th": 4, "four": 4,
-        "fifth": 5, "5th": 5, "five": 5,
-        "last": -1, "final": -1,
+        "first": 1,
+        "1st": 1,
+        "one": 1,
+        "second": 2,
+        "2nd": 2,
+        "two": 2,
+        "third": 3,
+        "3rd": 3,
+        "three": 3,
+        "fourth": 4,
+        "4th": 4,
+        "four": 4,
+        "fifth": 5,
+        "5th": 5,
+        "five": 5,
+        "last": -1,
+        "final": -1,
     }
     if normalized in ordinals:
         return "last" if ordinals[normalized] == -1 else ordinals[normalized]
@@ -833,9 +882,7 @@ def _handle_history_operation(session: SessionManager, name: str) -> dict:
         if edit is None:
             return _error_response(session, "NOTHING_TO_REDO", "There is nothing to redo.")
     after = session.get_timeline()
-    warnings, summary_warnings = _response_timeline_warnings(
-        before_warnings, after.warnings
-    )
+    warnings, summary_warnings = _response_timeline_warnings(before_warnings, after.warnings)
     summary_parts = [
         _length_summary(before, after),
         f"{'Undid' if name == 'undo' else 'Redid'} edit {edit.id}: {edit.instruction}",
@@ -880,9 +927,7 @@ def handle_instruction(
         )
     copied_ops = [dict(op) for op in intent_ops]
     if not isinstance(instruction, str):
-        return _error_response(
-            session, "INVALID_ARGUMENT", "Instruction text must be a string."
-        )
+        return _error_response(session, "INVALID_ARGUMENT", "Instruction text must be a string.")
     if len(copied_ops) == 1 and copied_ops[0].get("op") in ("undo", "redo"):
         return _handle_history_operation(session, copied_ops[0]["op"])
     if any(op.get("op") in ("undo", "redo") for op in copied_ops):
@@ -904,9 +949,7 @@ def handle_instruction(
                 "intent_ops": copy.deepcopy(copied_ops),
                 "instruction": instruction_text,
                 "op_index": op_index,
-                "question": _repeat_question(
-                    copied_ops[op_index], resolution, session
-                ),
+                "question": _repeat_question(copied_ops[op_index], resolution, session),
                 "options": ["Yes, do it again", "No, leave it"],
             }
             return _response(
@@ -983,17 +1026,15 @@ def handle_instruction(
                     options=options,
                     warnings=warnings,
                     summary=(
-                        "No changes were applied; clarification is required. "
-                        + unresolved.note
+                        "No changes were applied; clarification is required. " + unresolved.note
                     ),
                     time_policy=_time_policy(copied_ops),
                 )
             code, message, details = _resolution_error(unresolved, operation_name)
             conflict = _conflicting_cut(intent, resolver)
             if conflict is not None:
-                if (
-                    _destructive_intent(intent)
-                    and _same_target_as_last_active_edit(session, intent)
+                if _destructive_intent(intent) and _same_target_as_last_active_edit(
+                    session, intent
                 ):
                     code = "NO_CHANGE"
                     message = "This target was already removed; no change was made."
@@ -1029,7 +1070,9 @@ def handle_instruction(
         preview.state.redo = []
         candidate_hash = preview.get_timeline_hash()
         if not preview.get_timeline().segments:
-            warnings.append(f"{operation_name}: CUT_ALL — the video must retain at least one frame.")
+            warnings.append(
+                f"{operation_name}: CUT_ALL — the video must retain at least one frame."
+            )
             if first_error is None:
                 first_error = (
                     "CUT_ALL",
@@ -1057,11 +1100,7 @@ def handle_instruction(
             repeated_target = _destructive_intent(intent) and (
                 _same_target_as_last_active_edit(session, intent)
             )
-            code = (
-                "NO_CHANGE"
-                if repeated_target or conflict is None
-                else "EDIT_CONFLICT"
-            )
+            code = "NO_CHANGE" if repeated_target or conflict is None else "EDIT_CONFLICT"
             message = "This part leaves the timeline unchanged."
             details = None
             if conflict is not None and not repeated_target:
@@ -1100,9 +1139,7 @@ def handle_instruction(
             message,
             details=details,
             warnings=warnings,
-            summary=". ".join(
-                [message, *dict.fromkeys(resolution_notes)]
-            ),
+            summary=". ".join([message, *dict.fromkeys(resolution_notes)]),
             time_policy=_time_policy(copied_ops),
         )
 
@@ -1111,16 +1148,16 @@ def handle_instruction(
     final_timeline = session.get_timeline()
 
     operation_names = ", ".join(dict.fromkeys(str(op.get("op", "operation")) for op in copied_ops))
-    summary_parts = [_length_summary(baseline_timeline, final_timeline), f"Applied {operation_names}."]
-    summary_parts.extend(_caption_summary(
-        baseline_timeline, final_timeline, session.state.transcript
-    ))
-    new_timeline_warnings = _new_timeline_warnings(
-        baseline_warnings, final_timeline.warnings
+    summary_parts = [
+        _length_summary(baseline_timeline, final_timeline),
+        f"Applied {operation_names}.",
+    ]
+    summary_parts.extend(
+        _caption_summary(baseline_timeline, final_timeline, session.state.transcript)
     )
+    new_timeline_warnings = _new_timeline_warnings(baseline_warnings, final_timeline.warnings)
     overlap_notes = [
-        warning for warning in new_timeline_warnings
-        if warning.startswith("Speed overlap:")
+        warning for warning in new_timeline_warnings if warning.startswith("Speed overlap:")
     ]
     summary_parts.extend(overlap_notes)
     summary_parts.extend(dict.fromkeys(resolution_notes))
@@ -1129,17 +1166,13 @@ def handle_instruction(
     )
     warnings.extend(timeline_warnings)
     summary_parts.extend(
-        warning for warning in overlap_warning_summaries
-        if warning not in overlap_notes
+        warning for warning in overlap_warning_summaries if warning not in overlap_notes
     )
     for op in resolved_ops:
         if isinstance(op, (MuteOp, BleepOp)):
             for word in session.state.transcript.words:
-                if (
-                    word.confidence < LOW_CONFIDENCE_THRESHOLD
-                    and _id_in_word_interval(
-                        word.id, op.start_word_id, op.end_word_id, session.state.transcript
-                    )
+                if word.confidence < LOW_CONFIDENCE_THRESHOLD and _id_in_word_interval(
+                    word.id, op.start_word_id, op.end_word_id, session.state.transcript
                 ):
                     warnings.append(
                         f"Low confidence ({word.confidence:.2f}) on {op.op} word "
@@ -1169,9 +1202,7 @@ def resolver_note(intent: Mapping, resolver: Resolver) -> str:
     source_note = _target_resolution(intent.get("target"), resolver).note
     if intent.get("op") != "reorder":
         return source_note
-    destination = _destination_resolution(
-        intent.get("before", intent.get("destination")), resolver
-    )
+    destination = _destination_resolution(intent.get("before", intent.get("destination")), resolver)
     return f"{source_note} {destination.note}"
 
 
@@ -1215,7 +1246,11 @@ def answer(session: SessionManager, answer_text: str) -> dict:
         saved_ops = pending["intent_ops"]
         index = pending["op_index"]
         intent = saved_ops[index]
-        target_value = intent.get("before", intent.get("destination")) if pending["target_path"] == "before" else intent.get("target")
+        target_value = (
+            intent.get("before", intent.get("destination"))
+            if pending["target_path"] == "before"
+            else intent.get("target")
+        )
         resolver = Resolver(session.get_timeline(), session.state.transcript, session.state.stack)
         if intent.get("op") == "reorder" and pending["target_path"] == "before":
             resolution = _destination_resolution(target_value, resolver)

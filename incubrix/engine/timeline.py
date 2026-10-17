@@ -26,7 +26,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from incubrix.engine.models import (
-    Overlay,
     OverlayStatus,
     Segment,
     SourceInfo,
@@ -200,9 +199,7 @@ class Layout:
                 return min(src_frame, seg.src_out_f - 1)
         return None
 
-    def out_range_to_src_ranges(
-        self, out_start: int, out_end: int
-    ) -> list[tuple[int, int]]:
+    def out_range_to_src_ranges(self, out_start: int, out_end: int) -> list[tuple[int, int]]:
         """Convert an output-time range [out_start, out_end) to source ranges.
 
         A single output range may map to multiple source ranges when segments
@@ -216,12 +213,8 @@ class Layout:
             overlap_start = max(out_start, seg_out_start)
             overlap_end = min(out_end, seg_out_end)
             if overlap_start < overlap_end:
-                src_start = seg.src_in_f + round(
-                    (overlap_start - seg_out_start) * seg.speed
-                )
-                src_end = seg.src_in_f + round(
-                    (overlap_end - seg_out_start) * seg.speed
-                )
+                src_start = seg.src_in_f + round((overlap_start - seg_out_start) * seg.speed)
+                src_end = seg.src_in_f + round((overlap_end - seg_out_start) * seg.speed)
                 src_start = max(src_start, seg.src_in_f)
                 src_end = min(src_end, seg.src_out_f)
                 if src_start < src_end:
@@ -244,9 +237,7 @@ class Layout:
                 out_start = self._out_starts[i] + round(
                     (visible_start_f - seg.src_in_f) / seg.speed
                 )
-                out_end = self._out_starts[i] + round(
-                    (visible_end_f - seg.src_in_f) / seg.speed
-                )
+                out_end = self._out_starts[i] + round((visible_end_f - seg.src_in_f) / seg.speed)
                 out_end = min(out_end, self._out_starts[i] + segment_output_length(seg))
                 return (out_start, max(out_start, out_end))
         return None
@@ -322,7 +313,7 @@ class OverlayDisplay:
 
 def compute_overlay_displays(
     timeline: Timeline,
-    transcript: "Transcript",
+    transcript: Transcript,
     min_s: float = MIN_CAPTION_S,
 ) -> list[OverlayDisplay]:
     """Compute display times for all overlays with the minimum duration applied.
@@ -372,45 +363,46 @@ def compute_overlay_displays(
 
         # Dormant overlays never have display times
         if ov.status == OverlayStatus.DORMANT:
-            result.append(OverlayDisplay(
-                overlay_id=ov.id,
-                text=ov.text,
-                style=dict(ov.style),
-                status=ov.status,
-                start_out_f=None,
-                end_out_f=None,
-                start_s=None,
-                end_s=None,
-            ))
+            result.append(
+                OverlayDisplay(
+                    overlay_id=ov.id,
+                    text=ov.text,
+                    style=dict(ov.style),
+                    status=ov.status,
+                    start_out_f=None,
+                    end_out_f=None,
+                    start_s=None,
+                    end_s=None,
+                )
+            )
             continue
 
         start_idx = word_index_by_id[start_word.id]
         end_idx = word_index_by_id[end_word.id]
         anchor_words = transcript.words[min(start_idx, end_idx) : max(start_idx, end_idx) + 1]
-        alive_words = [
-            word for word in anchor_words
-            if is_word_alive(word, timeline.segments, fps)
-        ]
+        alive_words = [word for word in anchor_words if is_word_alive(word, timeline.segments, fps)]
         # ACTIVE/PARTIAL overlays have at least one surviving word in their anchor range.
         span = layout.caption_out_span(alive_words[0], alive_words[-1], fps, min_s)
         start_out_f, end_out_f = span
-        result.append(OverlayDisplay(
-            overlay_id=ov.id,
-            text=ov.text,
-            style=dict(ov.style),
-            status=ov.status,
-            start_out_f=start_out_f,
-            end_out_f=end_out_f,
-            start_s=round(start_out_f / fps, 3),
-            end_s=round(end_out_f / fps, 3),
-        ))
+        result.append(
+            OverlayDisplay(
+                overlay_id=ov.id,
+                text=ov.text,
+                style=dict(ov.style),
+                status=ov.status,
+                start_out_f=start_out_f,
+                end_out_f=end_out_f,
+                start_s=round(start_out_f / fps, 3),
+                end_s=round(end_out_f / fps, 3),
+            )
+        )
 
     return result
 
 
 def timeline_to_output(
     timeline: Timeline,
-    transcript: "Transcript",
+    transcript: Transcript,
     min_s: float = MIN_CAPTION_S,
 ) -> dict:
     """Serialize a timeline with its current, minimum-enforced overlay display times.
@@ -420,7 +412,6 @@ def timeline_to_output(
     """
     result = timeline.model_dump(mode="json")
     result["overlay_displays"] = [
-        display.to_dict()
-        for display in compute_overlay_displays(timeline, transcript, min_s)
+        display.to_dict() for display in compute_overlay_displays(timeline, transcript, min_s)
     ]
     return result

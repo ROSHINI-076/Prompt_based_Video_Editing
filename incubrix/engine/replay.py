@@ -94,15 +94,23 @@ def replay(
         for op in edit.ops:
             if isinstance(op, CutOp):
                 tl.segments, tl.overlays, tl.effects, warnings = apply_cut(
-                    tl.segments, tl.overlays, tl.effects,
-                    op.ranges, transcript, fps,
+                    tl.segments,
+                    tl.overlays,
+                    tl.effects,
+                    op.ranges,
+                    transcript,
+                    fps,
                 )
                 tl.warnings.extend(warnings)
 
             elif isinstance(op, KeepOnlyOp):
                 tl.segments, tl.overlays, tl.effects, warnings = apply_keep_only(
-                    tl.segments, tl.overlays, tl.effects,
-                    op.range, transcript, fps,
+                    tl.segments,
+                    tl.overlays,
+                    tl.effects,
+                    op.range,
+                    transcript,
+                    fps,
                 )
                 tl.warnings.extend(warnings)
 
@@ -120,9 +128,13 @@ def replay(
 
             elif isinstance(op, AddCaptionOp):
                 tl.overlays, warnings = apply_add_caption(
-                    tl.overlays, op.overlay_id, op.text,
-                    op.start_word_id, op.end_word_id,
-                    op.style, transcript,
+                    tl.overlays,
+                    op.overlay_id,
+                    op.text,
+                    op.start_word_id,
+                    op.end_word_id,
+                    op.style,
+                    transcript,
                 )
                 tl.warnings.extend(warnings)
 
@@ -132,22 +144,24 @@ def replay(
 
             elif isinstance(op, MuteOp):
                 tl.effects, warnings = apply_mute(
-                    tl.effects, op.effect_id,
-                    op.start_word_id, op.end_word_id,
+                    tl.effects,
+                    op.effect_id,
+                    op.start_word_id,
+                    op.end_word_id,
                 )
                 tl.warnings.extend(warnings)
 
             elif isinstance(op, BleepOp):
                 tl.effects, warnings = apply_bleep(
-                    tl.effects, op.effect_id,
-                    op.start_word_id, op.end_word_id,
+                    tl.effects,
+                    op.effect_id,
+                    op.start_word_id,
+                    op.end_word_id,
                 )
                 tl.warnings.extend(warnings)
 
             elif isinstance(op, MusicOp):
-                tl.music = MusicSettings(
-                    track=op.track, duck_db=op.duck_db, enabled=op.enabled
-                )
+                tl.music = MusicSettings(track=op.track, duck_db=op.duck_db, enabled=op.enabled)
 
             # RestoreOp: handled by the disabled set above; no action here
 

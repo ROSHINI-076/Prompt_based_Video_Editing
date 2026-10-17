@@ -10,19 +10,15 @@ Covers previously missed branches:
 
 from __future__ import annotations
 
-import pytest
-
 from incubrix.engine.models import (
     AddCaptionOp,
     BleepOp,
     CutOp,
     Edit,
     EffectType,
-    MuteOp,
     MusicOp,
-    RestoreOp,
+    MuteOp,
     SourceInfo,
-    SpeedOp,
     StyleOp,
     Transcript,
     Word,
@@ -31,8 +27,7 @@ from incubrix.engine.models import (
 from incubrix.engine.ops import apply_music, apply_speed
 from incubrix.engine.replay import replay
 from incubrix.engine.session import SessionManager
-from incubrix.engine.timeline import total_duration_frames
-from incubrix.engine.timeparse import _parse_duration, parse_time_expression, TimePoint
+from incubrix.engine.timeparse import TimePoint, _parse_duration, parse_time_expression
 
 FPS = 30.0
 
@@ -60,6 +55,7 @@ class TestApplySpeedCoverage:
     def test_no_overlap_no_warning(self):
         """A first speed change on normal footage is not an overlap."""
         from incubrix.engine.models import Segment
+
         segs = [Segment(src_in_f=0, src_out_f=300, speed=1.0)]
         new_segs, warnings = apply_speed(segs, (0, 300), 2.0)
         assert warnings == []
@@ -68,9 +64,7 @@ class TestApplySpeedCoverage:
     def test_overlapping_speed_replacement_warns_and_last_speed_wins(self):
         from incubrix.engine.models import Segment
 
-        segments, warnings = apply_speed(
-            [Segment(src_in_f=0, src_out_f=300)], (30, 120), 2.0
-        )
+        segments, warnings = apply_speed([Segment(src_in_f=0, src_out_f=300)], (30, 120), 2.0)
         segments, replacement_warnings = apply_speed(segments, (60, 150), 3.0)
 
         assert len(warnings) == 0
@@ -87,9 +81,7 @@ class TestApplySpeedCoverage:
     def test_reapplying_same_speed_does_not_warn(self):
         from incubrix.engine.models import Segment
 
-        segments, warnings = apply_speed(
-            [Segment(src_in_f=0, src_out_f=300)], (30, 120), 2.0
-        )
+        segments, warnings = apply_speed([Segment(src_in_f=0, src_out_f=300)], (30, 120), 2.0)
         segments, repeated_warnings = apply_speed(segments, (30, 120), 2.0)
 
         assert warnings == []
@@ -103,9 +95,7 @@ class TestApplySpeedCoverage:
     def test_speed_change_on_different_range_does_not_warn(self):
         from incubrix.engine.models import Segment
 
-        segments, _ = apply_speed(
-            [Segment(src_in_f=0, src_out_f=300)], (30, 90), 2.0
-        )
+        segments, _ = apply_speed([Segment(src_in_f=0, src_out_f=300)], (30, 90), 2.0)
         segments, warnings = apply_speed(segments, (150, 210), 3.0)
 
         assert warnings == []
@@ -119,7 +109,7 @@ class TestApplySpeedCoverage:
 
     def test_apply_music_returns_settings(self):
         from incubrix.engine.models import MusicSettings
-        from incubrix.engine.ops import apply_music
+
         music, warnings = apply_music(MusicSettings(), "track.mp3", -18.0, True)
         assert music.track == "track.mp3"
         assert music.duck_db == -18.0
@@ -136,8 +126,9 @@ class TestReplayEffectsAndMusic:
         transcript = _transcript(20)
         edits = [
             _edit(
-                "e1", "mute words 5-7",
-                MuteOp(effect_id="fx1", start_word_id=make_word_id(5), end_word_id=make_word_id(7))
+                "e1",
+                "mute words 5-7",
+                MuteOp(effect_id="fx1", start_word_id=make_word_id(5), end_word_id=make_word_id(7)),
             )
         ]
         tl = replay(src, edits, transcript)
@@ -150,8 +141,11 @@ class TestReplayEffectsAndMusic:
         transcript = _transcript(20)
         edits = [
             _edit(
-                "e1", "bleep word 3",
-                BleepOp(effect_id="fx2", start_word_id=make_word_id(3), end_word_id=make_word_id(3))
+                "e1",
+                "bleep word 3",
+                BleepOp(
+                    effect_id="fx2", start_word_id=make_word_id(3), end_word_id=make_word_id(3)
+                ),
             )
         ]
         tl = replay(src, edits, transcript)
@@ -161,10 +155,7 @@ class TestReplayEffectsAndMusic:
     def test_music_op_through_replay(self):
         src = _src(10.0)
         edits = [
-            _edit(
-                "e1", "add music",
-                MusicOp(track="background.mp3", duck_db=-12.0, enabled=True)
-            )
+            _edit("e1", "add music", MusicOp(track="background.mp3", duck_db=-12.0, enabled=True))
         ]
         tl = replay(src, edits, _transcript())
         assert tl.music.enabled is True
@@ -175,17 +166,17 @@ class TestReplayEffectsAndMusic:
         transcript = _transcript(20)
         edits = [
             _edit(
-                "e1", "add caption",
+                "e1",
+                "add caption",
                 AddCaptionOp(
-                    overlay_id="ov1", text="Hi!",
-                    start_word_id=make_word_id(5), end_word_id=make_word_id(7),
-                    style={"color": "white"}
-                )
+                    overlay_id="ov1",
+                    text="Hi!",
+                    start_word_id=make_word_id(5),
+                    end_word_id=make_word_id(7),
+                    style={"color": "white"},
+                ),
             ),
-            _edit(
-                "e2", "style red",
-                StyleOp(overlay_id="ov1", style={"color": "red"})
-            ),
+            _edit("e2", "style red", StyleOp(overlay_id="ov1", style={"color": "red"})),
         ]
         tl = replay(src, edits, transcript)
         ov = next(o for o in tl.overlays if o.id == "ov1")
@@ -196,12 +187,16 @@ class TestReplayEffectsAndMusic:
         transcript = _transcript(20)
         edits = [
             _edit(
-                "e1", "mute",
-                MuteOp(effect_id="fx1", start_word_id=make_word_id(1), end_word_id=make_word_id(2))
+                "e1",
+                "mute",
+                MuteOp(effect_id="fx1", start_word_id=make_word_id(1), end_word_id=make_word_id(2)),
             ),
             _edit(
-                "e2", "bleep",
-                BleepOp(effect_id="fx2", start_word_id=make_word_id(5), end_word_id=make_word_id(6))
+                "e2",
+                "bleep",
+                BleepOp(
+                    effect_id="fx2", start_word_id=make_word_id(5), end_word_id=make_word_id(6)
+                ),
             ),
         ]
         tl = replay(src, edits, transcript)
@@ -247,6 +242,7 @@ class TestTimeparseCoverage:
 
     def test_first_without_the(self):
         from incubrix.engine.timeparse import TimeRange
+
         result = parse_time_expression("first 15 seconds")
         assert isinstance(result, TimeRange)
         assert result.start == 0.0
@@ -254,6 +250,7 @@ class TestTimeparseCoverage:
 
     def test_last_without_the(self):
         from incubrix.engine.timeparse import TimeRange
+
         result = parse_time_expression("last 5 seconds")
         assert isinstance(result, TimeRange)
         assert result.from_end == 5.0

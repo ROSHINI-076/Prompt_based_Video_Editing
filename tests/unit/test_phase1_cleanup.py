@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+from incubrix.engine.hashing import timeline_hash
 from incubrix.engine.models import (
     AddCaptionOp,
     CutOp,
@@ -27,24 +28,21 @@ from incubrix.engine.models import (
     make_word_id,
     segment_output_length,
 )
-from incubrix.engine.hashing import timeline_hash
+from incubrix.engine.ops import (
+    _word_range,
+    apply_keep_only,
+    apply_style,
+    update_overlay_statuses,
+)
 from incubrix.engine.replay import replay
 from incubrix.engine.session import SessionManager
 from incubrix.engine.timeline import (
-    Layout,
     MIN_CAPTION_S,
+    Layout,
     caption_display_span,
     min_caption_frames,
-    total_duration_frames,
     timeline_to_output,
-)
-from incubrix.engine.ops import (
-    apply_cut,
-    apply_keep_only,
-    apply_speed,
-    apply_style,
-    update_overlay_statuses,
-    _word_range,
+    total_duration_frames,
 )
 
 FPS = 30.0
@@ -125,6 +123,7 @@ class TestCaptionOutSpan:
     def _layout_and_words(self, speed: float = 1.0):
         """Lay out a 10 s video, optionally at the given speed."""
         from incubrix.engine.models import Segment
+
         total_src = int(10.0 * FPS)
         segs = [Segment(src_in_f=0, src_out_f=total_src, speed=speed)]
         layout = Layout(segs)
@@ -157,6 +156,7 @@ class TestCaptionOutSpan:
     def test_normal_speed_long_caption_unchanged(self):
         """(b) Caption at normal speed lasting 2+ seconds is not lengthened."""
         from incubrix.engine.models import Segment
+
         segs = [Segment(src_in_f=0, src_out_f=int(10.0 * FPS), speed=1.0)]
         layout = Layout(segs)
         # 2-second caption
@@ -171,6 +171,7 @@ class TestCaptionOutSpan:
     def test_minimum_capped_at_timeline_end(self):
         """(c) Minimum is capped at the timeline end."""
         from incubrix.engine.models import Segment
+
         # Very short timeline: 10 frames total
         segs = [Segment(src_in_f=0, src_out_f=10, speed=1.0)]
         layout = Layout(segs)
@@ -184,6 +185,7 @@ class TestCaptionOutSpan:
     def test_dormant_words_return_none(self):
         """When all anchor words are cut, caption_out_span returns None."""
         from incubrix.engine.models import Segment
+
         # Timeline only has frames 50-300; words at 0-0.4 s (frames 0-12) are cut
         segs = [Segment(src_in_f=50, src_out_f=300, speed=1.0)]
         layout = Layout(segs)
@@ -201,15 +203,19 @@ class TestMinCaptionDeterminism:
         transcript = _transcript(20)
         edits = [
             _edit(
-                "e1", "4x speed",
+                "e1",
+                "4x speed",
                 SpeedOp(range=(0, int(5.0 * FPS)), factor=4.0),
             ),
             _edit(
-                "e2", "caption",
+                "e2",
+                "caption",
                 AddCaptionOp(
-                    overlay_id="ov1", text="Hi!",
-                    start_word_id=make_word_id(5), end_word_id=make_word_id(7),
-                )
+                    overlay_id="ov1",
+                    text="Hi!",
+                    start_word_id=make_word_id(5),
+                    end_word_id=make_word_id(7),
+                ),
             ),
         ]
         hashes = [timeline_hash(replay(src, edits, transcript)) for _ in range(3)]
@@ -220,13 +226,16 @@ class TestOverlayDisplayOutputInvariant:
     def test_partial_caption_uses_surviving_interior_words(self):
         """The public output span remains visible when both endpoint words are cut."""
         source = _src(10.0)
-        transcript = Transcript(words=[
-            Word(id=make_word_id(i), text=f"w{i}", start_s=i * 0.5, end_s=i * 0.5 + 0.3)
-            for i in range(5)
-        ])
+        transcript = Transcript(
+            words=[
+                Word(id=make_word_id(i), text=f"w{i}", start_s=i * 0.5, end_s=i * 0.5 + 0.3)
+                for i in range(5)
+            ]
+        )
         edits = [
             _edit(
-                "e1", "caption",
+                "e1",
+                "caption",
                 AddCaptionOp(
                     overlay_id="ov1",
                     text="middle",
@@ -235,7 +244,8 @@ class TestOverlayDisplayOutputInvariant:
                 ),
             ),
             _edit(
-                "e2", "cut caption endpoints",
+                "e2",
+                "cut caption endpoints",
                 CutOp(ranges=[(0, 15), (60, source.duration_frames)]),
             ),
         ]
@@ -253,7 +263,8 @@ class TestOverlayDisplayOutputInvariant:
         transcript = _transcript(5)
         edits = [
             _edit(
-                "e1", "caption",
+                "e1",
+                "caption",
                 AddCaptionOp(
                     overlay_id="ov1",
                     text="gone",
@@ -274,12 +285,13 @@ class TestOverlayDisplayOutputInvariant:
 
     def test_caption_keeps_visible_part_of_midpoint_alive_word(self):
         source = _src(10.0)
-        transcript = Transcript(words=[
-            Word(id=make_word_id(0), text="clipped", start_s=2.0, end_s=2.4)
-        ])
+        transcript = Transcript(
+            words=[Word(id=make_word_id(0), text="clipped", start_s=2.0, end_s=2.4)]
+        )
         edits = [
             _edit(
-                "e1", "caption",
+                "e1",
+                "caption",
                 AddCaptionOp(
                     overlay_id="ov1",
                     text="clipped word",
@@ -302,7 +314,8 @@ class TestOverlayDisplayOutputInvariant:
         transcript = _transcript(5)
         edits = [
             _edit(
-                "e1", "invalid caption",
+                "e1",
+                "invalid caption",
                 AddCaptionOp(
                     overlay_id="ov1",
                     text="invalid",
@@ -351,8 +364,8 @@ class TestTimelineLengthInvariant:
     def test_cut_then_speed(self):
         src = _src(10.0)
         edits = [
-            _edit("e1", "cut", CutOp(ranges=[(0, 90)])),           # 300 → 210 src frames
-            _edit("e2", "2x", SpeedOp(range=(90, 210), factor=2.0)), # 120 frames → 60 out
+            _edit("e1", "cut", CutOp(ranges=[(0, 90)])),  # 300 → 210 src frames
+            _edit("e2", "2x", SpeedOp(range=(90, 210), factor=2.0)),  # 120 frames → 60 out
         ]
         total = self._assert_length_invariant(src, edits, _transcript())
         # segment [90,210] at 2x = 60; [210,300] at 1x = 90 → total = 150
@@ -435,8 +448,10 @@ class TestUpdateOverlayStatusesUnknownId:
 
     def test_overlay_with_unknown_word_ids_is_preserved_unchanged(self):
         from incubrix.engine.models import Anchor, Overlay, OverlayStatus, Segment
+
         ov = Overlay(
-            id="ov1", text="test",
+            id="ov1",
+            text="test",
             anchor=Anchor(start_word_id="w9999", end_word_id="w9998"),
             status=OverlayStatus.ACTIVE,
             original_word_count=1,
@@ -455,15 +470,14 @@ class TestApplyKeepOnlyEdgeCases:
 
     def test_empty_segments_returns_unchanged(self):
         """Empty segment list → early return (line 206)."""
-        segs, ovs, fxs, warnings = apply_keep_only(
-            [], [], [], (0, 100), Transcript(words=[]), FPS
-        )
+        segs, ovs, fxs, warnings = apply_keep_only([], [], [], (0, 100), Transcript(words=[]), FPS)
         assert segs == []
         assert warnings == []
 
     def test_keep_whole_range_is_noop(self):
         """keep_range covers entire source → no cuts needed (line 213-214)."""
         from incubrix.engine.models import Segment
+
         segs = [Segment(src_in_f=0, src_out_f=300)]
         new_segs, _, _, warnings = apply_keep_only(
             segs, [], [], (0, 300), Transcript(words=[]), FPS
@@ -480,15 +494,20 @@ class TestApplyStyleElseBranch:
     def test_style_only_updates_matching_overlay(self):
         """Two overlays: only the targeted one is restyled; other is kept unchanged."""
         from incubrix.engine.models import Anchor, Overlay, OverlayStatus
+
         ov1 = Overlay(
-            id="ov1", text="A",
+            id="ov1",
+            text="A",
             anchor=Anchor(start_word_id="w0001", end_word_id="w0001"),
-            style={"color": "white"}, status=OverlayStatus.ACTIVE,
+            style={"color": "white"},
+            status=OverlayStatus.ACTIVE,
         )
         ov2 = Overlay(
-            id="ov2", text="B",
+            id="ov2",
+            text="B",
             anchor=Anchor(start_word_id="w0002", end_word_id="w0002"),
-            style={"color": "blue"}, status=OverlayStatus.ACTIVE,
+            style={"color": "blue"},
+            status=OverlayStatus.ACTIVE,
         )
         result, warnings = apply_style([ov1, ov2], "ov1", {"color": "red"})
         # ov1 updated, ov2 unchanged (the else-branch at line 336)
@@ -517,32 +536,38 @@ class TestTimeparse_MoreEdgeCases:
 
     def test_empty_string_returns_none(self):
         from incubrix.engine.timeparse import _parse_number_words
+
         assert _parse_number_words("") is None  # line 82
 
     def test_and_token_skipped(self):
         from incubrix.engine.timeparse import _parse_number_words
+
         # "and" alone → total=0, not "zero", returns None
         assert _parse_number_words("and") is None
 
     def test_a_token_in_compound(self):
         from incubrix.engine.timeparse import _parse_number_words
+
         # "a hundred" → 100 (lines 92-93: tok == "a" in loop)
         assert _parse_number_words("a hundred") == 100.0  # line 92-93, 99-103
 
     def test_thousand_multiplier(self):
         from incubrix.engine.timeparse import _parse_number_words
+
         # "two thousand" → 2000 (lines 99-103: multiplier path)
         assert _parse_number_words("two thousand") == 2000.0
 
     def test_hundred_multiplier_with_implicit_one(self):
         from incubrix.engine.timeparse import _parse_number_words
+
         # "hundred" alone → current=0 → set to 1 → 100 (line 100)
         assert _parse_number_words("hundred") == 100.0
 
     def test_first_and_last_with_bare_word_numbers(self):
         """'first twenty' / 'last five' are handled by _parse_duration (which calls
         _parse_number_words internally). No separate fallback needed."""
-        from incubrix.engine.timeparse import parse_time_expression, TimeRange
+        from incubrix.engine.timeparse import TimeRange, parse_time_expression
+
         r1 = parse_time_expression("first twenty")
         assert isinstance(r1, TimeRange)
         assert r1.from_start == 20.0

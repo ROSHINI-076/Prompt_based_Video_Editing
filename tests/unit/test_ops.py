@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from incubrix.engine.models import (
     Anchor,
     Effect,
@@ -14,7 +12,6 @@ from incubrix.engine.models import (
     Transcript,
     Word,
     make_word_id,
-    segment_output_length,
 )
 from incubrix.engine.ops import (
     apply_add_caption,
@@ -26,7 +23,6 @@ from incubrix.engine.ops import (
     apply_speed,
     apply_style,
     snap_to_silence,
-    update_overlay_statuses,
 )
 from incubrix.engine.timeline import total_duration_frames
 
@@ -95,7 +91,9 @@ class TestApplyCut:
 
     def test_cut_multiple_ranges(self):
         segs = [Segment(src_in_f=0, src_out_f=900)]
-        new_segs, _, _, _ = apply_cut(segs, [], [], [(0, 100), (200, 300)], Transcript(words=[]), FPS)
+        new_segs, _, _, _ = apply_cut(
+            segs, [], [], [(0, 100), (200, 300)], Transcript(words=[]), FPS
+        )
         assert total_duration_frames(new_segs) == 700
 
     def test_caption_dormant_when_all_words_cut(self):
@@ -133,8 +131,9 @@ class TestApplyCut:
     def test_effects_unchanged_by_cut(self):
         segs = [Segment(src_in_f=0, src_out_f=900)]
         fx = Effect(
-            id="fx1", type=EffectType.MUTE,
-            anchor=Anchor(start_word_id="w0001", end_word_id="w0002")
+            id="fx1",
+            type=EffectType.MUTE,
+            anchor=Anchor(start_word_id="w0001", end_word_id="w0002"),
         )
         _, _, effects, _ = apply_cut(segs, [], [fx], [(0, 100)], Transcript(words=[]), FPS)
         assert len(effects) == 1
@@ -147,18 +146,14 @@ class TestApplyCut:
 class TestApplyKeepOnly:
     def test_keeps_middle(self):
         segs = [Segment(src_in_f=0, src_out_f=900)]
-        new_segs, _, _, _ = apply_keep_only(
-            segs, [], [], (300, 600), Transcript(words=[]), FPS
-        )
+        new_segs, _, _, _ = apply_keep_only(segs, [], [], (300, 600), Transcript(words=[]), FPS)
         assert len(new_segs) == 1
         assert new_segs[0].src_in_f == 300
         assert new_segs[0].src_out_f == 600
 
     def test_duration_correct(self):
         segs = [Segment(src_in_f=0, src_out_f=900)]
-        new_segs, _, _, _ = apply_keep_only(
-            segs, [], [], (100, 700), Transcript(words=[]), FPS
-        )
+        new_segs, _, _, _ = apply_keep_only(segs, [], [], (100, 700), Transcript(words=[]), FPS)
         assert total_duration_frames(new_segs) == 600
 
 
@@ -251,8 +246,7 @@ class TestCaptionStyle:
     def test_style_merges(self):
         transcript = _make_simple_transcript(5)
         overlays, _ = apply_add_caption(
-            [], "ov1", "Hello!", make_word_id(0), make_word_id(2),
-            {"color": "white"}, transcript
+            [], "ov1", "Hello!", make_word_id(0), make_word_id(2), {"color": "white"}, transcript
         )
         overlays, _ = apply_style(overlays, "ov1", {"size": 24})
         assert overlays[0].style == {"color": "white", "size": 24}
@@ -260,8 +254,7 @@ class TestCaptionStyle:
     def test_style_overrides(self):
         transcript = _make_simple_transcript(5)
         overlays, _ = apply_add_caption(
-            [], "ov1", "Hello!", make_word_id(0), make_word_id(2),
-            {"color": "white"}, transcript
+            [], "ov1", "Hello!", make_word_id(0), make_word_id(2), {"color": "white"}, transcript
         )
         overlays, _ = apply_style(overlays, "ov1", {"color": "red"})
         assert overlays[0].style["color"] == "red"
