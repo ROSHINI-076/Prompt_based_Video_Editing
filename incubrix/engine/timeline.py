@@ -1,6 +1,9 @@
 """Timeline layout helpers.
 
-Provides Layout for converting between source and output frame positions.
+Provides Layout for converting between source and output frame positions,
+and compute_overlay_displays() — the CANONICAL function the API and renderer
+use to obtain caption display times with the minimum-duration rule applied.
+
 All positions are integer frames. No I/O, no dependencies outside this package.
 
 Key formulas:
@@ -8,20 +11,42 @@ Key formulas:
   src_to_out(f): sum of earlier segment lengths + (f - seg.src_in_f) / seg.speed
   A word is 'alive' if its midpoint frame lies inside any segment.
   caption_display_span: enforces MIN_CAPTION_FRAMES minimum duration.
+
+Design note (see docs/decisions.md D004):
+  Display times are NEVER stored in the Timeline.  They are derived from
+  word anchors + segment list on demand via compute_overlay_displays().
+  timeline_hash therefore hashes the source (fps, duration), segments, and
+  word-ID anchors, which transitively guarantees identical display times for
+  an identical hash.
 """
 
 from __future__ import annotations
 
-from incubrix.engine.models import Segment, SourceInfo, Timeline, Word, segment_output_length
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from incubrix.engine.models import (
+    Overlay,
+    OverlayStatus,
+    Segment,
+    SourceInfo,
+    Timeline,
+    Word,
+    segment_output_length,
+)
+
+if TYPE_CHECKING:
+    from incubrix.engine.models import Transcript
+
 
 # ── Minimum caption duration ──────────────────────────────────────
 #
 # Spec s6.5: "End time is at least MIN_CAPTION_S=0.7 after start, even when
 # sped up."  This is a named constant in the engine; the API layer can later
-# read it from env settings and pass it through.
+# read it from env settings and pass it through to compute_overlay_displays().
 #
-# It is DERIVED at query time (when computing display times from anchors),
-# never stored as an output timestamp.
+# IMPORTANT: The minimum is DERIVED at query time (when computing display times
+# from anchors), never stored as an output timestamp in the Timeline or Overlay.
 
 MIN_CAPTION_S: float = 0.7
 
@@ -152,6 +177,17 @@ class Layout:
         """Convert an output frame to its source frame position.
 
         Returns None if out_frame is out of range.
+
+        Proof that the final 'return None' is unreachable for a normal Layout:
+          Precondition: the bounds check at the top ensures
+            0 <= out_frame < self._total
+          where self._total = sum(segment_output_length(s) for s in segments).
+          The loop walks segments whose cumulative lengths exactly tile [0, _total).
+          For each segment i: out_frame < seg_end iff out_frame is in that tile.
+          Because the tiles are exhaustive and non-overlapping, exactly one
+          segment satisfies the condition and the function returns there.
+          The final return None is therefore unreachable while this invariant
+          holds; it remains a defensive fallback if cached state is inconsistent.
         """
         if out_frame < 0 or out_frame >= self._total:
             return None
@@ -162,9 +198,7 @@ class Layout:
                 offset = out_frame - self._out_starts[i]
                 src_frame = seg.src_in_f + round(offset * seg.speed)
                 return min(src_frame, seg.src_out_f - 1)
-        # Unreachable: out_frame < self._total guarantees one segment matched.
-        # Kept as a safety net; covered by test_out_to_src_at_last_frame.
-        return None  # pragma: no cover
+        return None
 
     def out_range_to_src_ranges(
         self, out_start: int, out_end: int
@@ -232,3 +266,156 @@ class Layout:
         end_out = end_span[1] if end_span is not None else (start_span[1] if start_span else 0)
 
         return caption_display_span(start_out, end_out, self._total, fps, min_s)
+
+
+# ── OverlayDisplay: canonical output type ─────────────────────────
+
+
+@dataclass
+class OverlayDisplay:
+    """Computed display information for one overlay.
+
+    This is what the API serialises and what the renderer consumes.
+    start_out_f / end_out_f already have the MIN_CAPTION_S minimum applied.
+    They are None when the overlay is dormant (all anchor words cut).
+
+    Design (see docs/decisions.md D004):
+      These times are NOT stored in Timeline — they are re-derived on every
+      call to compute_overlay_displays(). timeline_hash does not cover them
+      directly; its scope is the stored Timeline, not transcript timestamps.
+    """
+
+    overlay_id: str
+    text: str
+    style: dict
+    status: OverlayStatus
+    # Output-frame positions with MIN_CAPTION_S enforced. None = dormant.
+    start_out_f: int | None
+    end_out_f: int | None
+    # Seconds derived from integer frames: round(frames / fps, 3)
+    start_s: float | None
+    end_s: float | None
+
+    def to_dict(self) -> dict:
+        """Serialize the computed overlay view using JSON-friendly values."""
+        return {
+            "overlay_id": self.overlay_id,
+            "text": self.text,
+            "style": dict(self.style),
+            "status": self.status.value,
+            "start_out_f": self.start_out_f,
+            "end_out_f": self.end_out_f,
+            "start_s": self.start_s,
+            "end_s": self.end_s,
+        }
+
+
+def compute_overlay_displays(
+    timeline: Timeline,
+    transcript: "Transcript",
+    min_s: float = MIN_CAPTION_S,
+) -> list[OverlayDisplay]:
+    """Compute display times for all overlays with the minimum duration applied.
+
+    THIS IS THE CANONICAL PATH the API and renderer use to get caption times.
+
+    Rules applied here (spec s6.5):
+    - DORMANT overlays → start_out_f / end_out_f / start_s / end_s are None.
+    - ACTIVE / PARTIAL overlays → times derived from alive anchor words via
+      Layout.caption_out_span(), which enforces MIN_CAPTION_S and caps at the
+      timeline end.
+
+    Args:
+        timeline:   The current Timeline (produced by replay()).
+        transcript: The full transcript with all words.
+        min_s:      Minimum caption display duration in seconds. Defaults to
+                    MIN_CAPTION_S (0.7). The API layer passes the env-configured
+                    value here; the engine default is used when called directly.
+
+    Returns a list of OverlayDisplay — one per overlay in timeline.overlays,
+    in the same order.
+    """
+    fps = timeline.source.fps
+    layout = Layout(timeline.segments)
+
+    # Build O(1) word lookup
+    word_by_id: dict[str, Word] = {w.id: w for w in transcript.words}
+
+    result: list[OverlayDisplay] = []
+    for ov in timeline.overlays:
+        # Dormant overlays never have display times
+        if ov.status == OverlayStatus.DORMANT:
+            result.append(OverlayDisplay(
+                overlay_id=ov.id,
+                text=ov.text,
+                style=dict(ov.style),
+                status=ov.status,
+                start_out_f=None,
+                end_out_f=None,
+                start_s=None,
+                end_s=None,
+            ))
+            continue
+
+        start_word = word_by_id.get(ov.anchor.start_word_id)
+        end_word = word_by_id.get(ov.anchor.end_word_id)
+
+        if start_word is None or end_word is None:
+            # Anchor words not found in transcript — treat as dormant
+            result.append(OverlayDisplay(
+                overlay_id=ov.id,
+                text=ov.text,
+                style=dict(ov.style),
+                status=ov.status,
+                start_out_f=None,
+                end_out_f=None,
+                start_s=None,
+                end_s=None,
+            ))
+            continue
+
+        span = layout.caption_out_span(start_word, end_word, fps, min_s)
+        if span is None:
+            # Both anchor words cut (status mismatch — guard defensively)
+            result.append(OverlayDisplay(
+                overlay_id=ov.id,
+                text=ov.text,
+                style=dict(ov.style),
+                status=ov.status,
+                start_out_f=None,
+                end_out_f=None,
+                start_s=None,
+                end_s=None,
+            ))
+        else:
+            start_out_f, end_out_f = span
+            result.append(OverlayDisplay(
+                overlay_id=ov.id,
+                text=ov.text,
+                style=dict(ov.style),
+                status=ov.status,
+                start_out_f=start_out_f,
+                end_out_f=end_out_f,
+                start_s=round(start_out_f / fps, 3),
+                end_s=round(end_out_f / fps, 3),
+            ))
+
+    return result
+
+
+def timeline_to_output(
+    timeline: Timeline,
+    transcript: "Transcript",
+    min_s: float = MIN_CAPTION_S,
+) -> dict:
+    """Serialize a timeline with its current, minimum-enforced overlay display times.
+
+    Stored overlays remain anchored to word IDs. The output projection is the
+    public engine boundary for API and renderer consumers that need display times.
+    """
+    result = timeline.model_dump(mode="json")
+    result["overlay_displays"] = [
+        display.to_dict()
+        for display in compute_overlay_displays(timeline, transcript, min_s)
+    ]
+    return result

@@ -84,6 +84,11 @@ If a word is alive, its on-screen time can be derived. If it isn't, it was cut.
 **Dormant captions are never deleted.** They remain in the overlay list so
 that a `restore` of the cut brings them back automatically.
 
+Caption times are computed at the output boundary, not stored on the overlay.
+`SessionManager.get_timeline_output()` exposes `overlay_displays` derived from
+the word anchors and current segments. This projection applies the 0.7-second
+minimum (capped at the timeline end), including after a speed change.
+
 ---
 
 ## The edit stack: the single source of truth
@@ -153,6 +158,9 @@ timeline_hash = sha256(canonical_json(timeline, exclude=["warnings"]))
 translate plain language → structured ops at temperature 0; all timeline
 arithmetic is ordinary deterministic code. The same source + the same stack
 produces the **identical `timeline_hash` on every run**.
+The hash is over the stored timeline and does not include derived caption
+display times or transcript timestamps; stable display-time comparisons assume
+the same session transcript.
 
 ---
 

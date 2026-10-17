@@ -131,6 +131,12 @@ class TestLayout:
         assert layout.out_to_src(-1) is None
         assert layout.out_to_src(100) is None
 
+    def test_out_to_src_fallback_when_cached_total_is_inconsistent(self):
+        """The defensive fallback is reached only if the layout invariant is broken."""
+        layout = Layout([Segment(src_in_f=0, src_out_f=100)])
+        layout._total += 1
+        assert layout.out_to_src(100) is None
+
     def test_speed_2x(self):
         """Speed 2x: 300 source frames → 150 output frames."""
         segs = [Segment(src_in_f=0, src_out_f=300, speed=2.0)]

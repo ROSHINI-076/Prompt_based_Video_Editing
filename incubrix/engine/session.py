@@ -14,7 +14,7 @@ from __future__ import annotations
 from incubrix.engine.hashing import timeline_hash
 from incubrix.engine.models import Edit, SessionState, SourceInfo, Transcript
 from incubrix.engine.replay import replay
-from incubrix.engine.timeline import Layout, total_duration_frames
+from incubrix.engine.timeline import Layout, timeline_to_output, total_duration_frames
 
 
 class SessionManager:
@@ -92,6 +92,13 @@ class SessionManager:
     def get_timeline_hash(self) -> str:
         """Compute the deterministic SHA-256 hash of the current timeline."""
         return timeline_hash(self.get_timeline())
+
+    def get_timeline_output(self) -> dict:
+        """Return the public timeline projection, including derived caption times."""
+        timeline = self.get_timeline()
+        result = timeline_to_output(timeline, self._state.transcript)
+        result["timeline_hash"] = timeline_hash(timeline)
+        return result
 
     def get_layout(self) -> Layout:
         """Return a Layout for the current timeline (for output-time lookups)."""
