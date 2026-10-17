@@ -66,3 +66,18 @@ For a normal `Layout`, the invariant is:
 
 The test `test_out_to_src_fallback_when_cached_total_is_inconsistent` deliberately breaks the
 cached-total invariant to prove the defensive `None` behavior is covered.
+
+## D006: Target resolver returns source-anchored resolutions only
+
+**Date:** 2026-10-17
+**Context:** The instruction response layer needs a pure, deterministic boundary between parsed
+targets and edit operations.
+**Decision:** `Resolver` accepts a replayed `Timeline`, its `Transcript`, and optional edit history.
+Resolved edit ranges are original source-frame pairs and word/edit/overlay references remain IDs.
+Time policies are seconds at the resolver input; phrase matches use the existing `snap_to_silence`
+rule; topic embeddings are an optional `(query, sentence) -> score` callable. Ambiguous matches
+carry numbered current-time/snippet options plus `all`, and never select a candidate implicitly.
+Restore overlap bounds are expressed in original-time seconds. Caption option display times are
+read only from `timeline_to_output()`.
+**Rationale:** This keeps the resolver independent of API, persistence, and model providers while
+making the response layer responsible for deciding how to present a resolution status.
