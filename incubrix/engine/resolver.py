@@ -260,7 +260,7 @@ class Resolver:
         if target.from_start is not None:
             start_s, end_s = 0.0, target.from_start
         elif target.from_end is not None:
-            start_s, end_s = duration_s - target.from_end, duration_s
+            start_s, end_s = max(0.0, duration_s - target.from_end), duration_s
         else:
             start_s = target.start
             end_s = target.end
@@ -268,8 +268,6 @@ class Resolver:
                 return self._failure("BAD_RANGE", "Both start and end are required.", policy)
 
         assert start_s is not None and end_s is not None
-        if start_s < 0 or end_s < 0:
-            return self._failure("BAD_RANGE", "Time ranges cannot be negative.", policy)
         if start_s > duration_s:
             return self._failure("OUT_OF_RANGE", "Range start is beyond the video.", policy)
         if end_s <= start_s:
@@ -433,18 +431,32 @@ class Resolver:
         if relation == "after":
             boundary_out = self.layout.src_to_out(snap_end)
             if boundary_out is None:
-                boundary_out = match.current_end_f
+                boundary_out = next(
+                    (
+                        frame
+                        for segment in self.timeline.segments
+                        if segment.src_in_f >= snap_end
+                        for frame in [self.layout.src_to_out(segment.src_in_f)]
+                        if frame is not None
+                    ),
+                    self._current_duration_f,
+                )
             return self.layout.out_range_to_src_ranges(boundary_out, self._current_duration_f)
         boundary_out = self.layout.src_to_out(snap_start)
         if boundary_out is None:
-            boundary_out = match.current_start_f
+            first_word_start = round(
+                self.transcript.words[match.indices[0]].start_s * self.fps
+            )
+            boundary_out = self.layout.src_to_out(first_word_start)
+            if boundary_out is None:
+                boundary_out = match.current_start_f
         return self.layout.out_range_to_src_ranges(0, boundary_out)
 
     def resolve_phrase(self, target: PhraseTarget) -> Resolution:
         """Resolve a phrase to snapped source ranges, requiring an explicit repeated-match choice."""
         matches = self._phrase_matches(target.text, target.speaker)
         if not matches:
-            dead = self._phrase_matches_all_words(target.text, target.speaker, alive_only=False)
+            dead = self._phrase_matches_all_words(target.text, target.speaker)
             detail = (
                 f"'{target.text}' occurs only in cut regions."
                 if dead else f"No alive transcript match for '{target.text}'."
@@ -477,11 +489,7 @@ class Resolver:
             note=self._note("current", label, ranges),
         )
 
-    def _phrase_matches_all_words(
-        self, phrase: str, speaker: str | None, alive_only: bool
-    ) -> list[_Match]:
-        if alive_only:
-            return self._phrase_matches(phrase, speaker)
+    def _phrase_matches_all_words(self, phrase: str, speaker: str | None) -> list[_Match]:
         full_segments = [Segment(src_in_f=0, src_out_f=self._source_duration_f)]
         return self._find_phrase_matches(
             phrase,
@@ -562,9 +570,6 @@ class Resolver:
                 for i in alive_indices
             ]
             output_frames = [frame for frame in output_frames if frame is not None]
-            if not output_frames:
-                dead_match = True
-                continue
             matches.append(
                 _Match(
                     indices=alive_indices,
