@@ -1,0 +1,22 @@
+name: select the third repeated thanks and cut to the end
+transcript: synthetic_5min
+duration_s: 10.0
+words:
+  - {text: thanks, start_s: 1.0, end_s: 1.2}
+  - {text: one, start_s: 1.5, end_s: 1.7}
+  - {text: thanks, start_s: 3.0, end_s: 3.2}
+  - {text: two, start_s: 3.5, end_s: 3.7}
+  - {text: thanks, start_s: 5.0, end_s: 5.2}
+  - {text: three, start_s: 5.5, end_s: 5.7}
+  - {text: thanks, start_s: 7.0, end_s: 7.2}
+  - {text: four., start_s: 7.5, end_s: 7.7}
+steps:
+  - ops:
+      - {op: cut, target: {kind: phrase, text: thanks, relation: after}}
+    answer: the third one
+    expect:
+      clarification_status: needs_clarification
+      status: applied
+      question_contains: ["4", "thanks"]
+      options_contain: ["all"]
+      alive_word_ids: [w0001, w0002, w0003, w0004, w0005]

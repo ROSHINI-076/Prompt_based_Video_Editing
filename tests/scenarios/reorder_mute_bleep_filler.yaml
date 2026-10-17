@@ -1,0 +1,32 @@
+name: reordered filler remains bleeped and is reported
+transcript: synthetic_5min
+duration_s: 8.0
+words:
+  - {text: hello, start_s: 0.2, end_s: 0.5}
+  - {text: "um,", start_s: 0.7, end_s: 1.0}
+  - {text: next., start_s: 2.0, end_s: 2.3}
+  - {text: tail., start_s: 4.0, end_s: 4.3}
+steps:
+  - ops:
+      - op: reorder
+        target: {kind: phrase, text: hello um}
+        before: end
+    expect:
+      status: applied
+  - ops:
+      - op: mute
+        target: {kind: word, text: hello}
+    expect:
+      status: applied
+  - ops:
+      - op: bleep
+        target: {kind: word, text: um}
+    expect:
+      status: applied
+  - ops:
+      - {op: remove_fillers}
+    expect:
+      status: rejected
+      error_code: NO_CHANGE
+      warnings_contain: ["kept 'um'", "bleeped"]
+      alive_word_ids: [w0001, w0002, w0003, w0004]

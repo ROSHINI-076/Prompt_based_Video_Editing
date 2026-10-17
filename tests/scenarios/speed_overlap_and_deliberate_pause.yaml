@@ -1,0 +1,33 @@
+name: speed overlap warns and protected pause survives later silence removal
+transcript: synthetic_5min
+duration_s: 12.0
+words:
+  - {text: hello, start_s: 0.2, end_s: 0.5}
+  - {text: there, start_s: 3.0, end_s: 3.3}
+  - {text: friend., start_s: 7.0, end_s: 7.3}
+steps:
+  - ops:
+      - {op: speed, target: {kind: time, start: 0.0, end: 4.0}, factor: 2.0}
+    expect: {status: applied}
+  - ops:
+      - {op: speed, target: {kind: time, start: 2.0, end: 6.0, policy: original}, factor: 3.0}
+    expect:
+      status: applied
+      summary_contains: ["Speed overlap", "last instruction wins"]
+  - ops:
+      - {op: speed, target: {kind: time, start: 7.0, end: 9.0, policy: original}, factor: 1.5}
+    expect:
+      status: applied
+      summary_not_contains: ["Speed overlap"]
+      warnings_contain: []
+  - ops:
+      - {op: keep_pause, target: {kind: word, text: hello}}
+    expect:
+      status: applied
+      protected_pause_after_word_ids: [w0001]
+  - ops:
+      - {op: remove_silence, min_gap_s: 0.5}
+    expect:
+      status: applied
+      warnings_contain: ["Protected pause after 'hello'"]
+      protected_pause_after_word_ids: [w0001]

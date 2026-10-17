@@ -9,7 +9,7 @@
 | `INVALID_SPEED` | The speed factor is not a finite number in the supported range. |
 | `NO_CHANGE` | The operation is redundant, was already applied (including repeated filler/silence removal or auto-captioning), or was declined without changing the timeline. |
 | `NO_MATCH` | No matching content, filler word, unprotected silence gap, edit, caption, or pending question was found. |
-| `NO_TARGET` | The requested target does not exist, such as styling when there is no caption or selecting a music track outside the configured allow-list. |
+| `NO_TARGET` | The requested target does not exist, such as styling when there is no caption, selecting a music track outside the configured allow-list, or requesting a cut ordinal beyond the active cut history. |
 | `NOTHING_TO_REDO` | There is no edit available to redo. |
 | `NOTHING_TO_UNDO` | There is no edit available to undo. |
 | `OUT_OF_RANGE` | A requested start or destination is beyond the video. |

@@ -1,0 +1,19 @@
+name: natural time forms resolve to current-time ranges
+transcript: synthetic_5min
+duration_s: 300.0
+steps:
+  - ops:
+      - {op: cut, target: {time_expression: "from 80 seconds to 85 seconds"}}
+    expect:
+      status: applied
+      operation_ranges: [[80.0, 85.0]]
+  - ops:
+      - {op: cut, target: {time_expression: "from a minute twenty to a minute thirty"}}
+    expect:
+      status: applied
+      operation_ranges: [[85.0, 95.0]]
+  - ops:
+      - {op: cut, target: {time_expression: "the last 10 seconds"}}
+    expect:
+      status: applied
+      operation_ranges: [[290.0, 300.0]]

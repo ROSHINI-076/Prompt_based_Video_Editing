@@ -1,0 +1,12 @@
+name: caption request beyond short source is rejected
+transcript: synthetic_5min
+duration_s: 20.0
+steps:
+  - ops:
+      - op: add_caption
+        text: Too late
+        target: {kind: time, start: 300.0, end: 301.0}
+    expect:
+      status: rejected
+      error_code: OUT_OF_RANGE
+      duration_s: 20.0

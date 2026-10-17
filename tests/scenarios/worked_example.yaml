@@ -1,0 +1,65 @@
+name: eight-step worked example
+transcript: synthetic_5min
+steps:
+  - ops:
+      - op: add_caption
+        text: Welcome!
+        target: {kind: phrase, text: welcome to the channel}
+    expect:
+      status: applied
+      caption: {text: Welcome!, start_s: 42.0, end_s: 43.9}
+  - ops:
+      - op: cut
+        target: {kind: time, from_start: 30.0}
+    expect:
+      status: applied
+      duration_s: 270.0
+      caption: {text: Welcome!, start_s: 12.0, end_s: 13.9}
+  - ops:
+      - op: cut
+        target: {kind: topic, query: pricing}
+    answer: the second one
+    expect:
+      clarification_status: needs_clarification
+      status: applied
+      question_contains: ["pricing", "3"]
+      options_contain: ["all"]
+      summary_contains: ["current"]
+  - ops:
+      - op: speed
+        target: {kind: time, start: 60.0, end: 90.0, policy: current}
+        factor: 2.0
+    expect:
+      status: applied
+      summary_contains: ["current (edited) time", "original"]
+  - ops:
+      - op: restore
+        target: {kind: overlap, start: 0.0, end: 30.0}
+    expect:
+      status: applied
+      caption: {text: Welcome!, start_s: 42.0, end_s: 43.9}
+      summary_contains: ["restore"]
+  - ops:
+      - op: undo
+    expect:
+      status: applied
+      hash_equals_step: 4
+      caption: {text: Welcome!, start_s: 12.0, end_s: 13.9}
+  - ops:
+      - op: style
+        target: {kind: caption}
+        style: {color: red}
+    expect:
+      status: applied
+      caption: {text: Welcome!, start_s: 12.0, end_s: 13.9}
+      overlay_style: {text: Welcome!, style: {color: red}}
+  - ops:
+      - op: render
+    expect:
+      status: applied
+      timeline:
+        segment_count: 4
+        caption_texts: [Welcome!]
+        caption_displays:
+          - {text: Welcome!, start_s: 12.0, end_s: 13.9}
+        duration_s: 250.0

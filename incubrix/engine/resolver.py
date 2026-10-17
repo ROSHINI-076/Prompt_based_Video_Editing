@@ -73,6 +73,7 @@ class RestoreTarget:
 
     edit_id: str | None = None
     overlap: tuple[float, float] | None = None
+    cut_ordinal: int | None = None
     any: bool = False
     choice: int | str | None = None
 
@@ -173,6 +174,11 @@ def _choice_index(choice: int | str | None, count: int) -> int | None:
     if normalized.isdigit():
         return _choice_index(int(normalized), count)
     return None
+
+
+def _ordinal_suffix(value: int) -> str:
+    """Return the English ordinal suffix used in restore-target messages."""
+    return "th" if 10 <= value % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
 
 
 class Resolver:
@@ -634,6 +640,31 @@ class Resolver:
             result.append((start, len(words) - 1))
         return result
 
+    def resolve_host_lead_in(self, word_ids: list[str], guest_speaker: str) -> Resolution | None:
+        """Find an immediately preceding host question for selected guest words."""
+        selected_indices = {
+            index for index, word in enumerate(self.transcript.words) if word.id in word_ids
+        }
+        sentences = self._sentences()
+        for sentence_index, (first, last) in enumerate(sentences):
+            if not selected_indices.intersection(range(first, last + 1)) or sentence_index == 0:
+                continue
+            host_first, host_last = sentences[sentence_index - 1]
+            host_words = self.transcript.words[host_first : host_last + 1]
+            if (
+                host_words
+                and host_words[-1].text.rstrip("\"')]}").endswith("?")
+                and any(word.speaker != guest_speaker for word in host_words)
+            ):
+                ranges = [snap_to_silence(host_first, host_last, self.transcript, self.fps)]
+                return Resolution(
+                    status="RESOLVED",
+                    source_ranges=ranges,
+                    word_ids=[word.id for word in host_words],
+                    note=self._note("current", "host lead-in question", ranges),
+                )
+        return None
+
     def _topic_terms(self, query: str) -> set[str]:
         terms: set[str] = set()
         for token in _tokens(query):
@@ -851,6 +882,21 @@ class Resolver:
                 for edit in candidates
                 if any(a < end_f and b > start_f for a, b in self._cut_ranges_for_edit(edit))
             ]
+        elif target.cut_ordinal is not None:
+            cut_count = len(candidates)
+            if target.cut_ordinal < 1 or target.cut_ordinal > cut_count:
+                return Resolution(
+                    status="NO_MATCH",
+                    error_code="NO_TARGET",
+                    note=self._note("original", "active cut edit ordinal"),
+                    detail=(
+                        f"Only {cut_count} active cut edit"
+                        f"{'' if cut_count == 1 else 's'} exist; cannot select "
+                        f"the {target.cut_ordinal}"
+                        f"{_ordinal_suffix(target.cut_ordinal)}-to-last cut."
+                    ),
+                )
+            candidates = [candidates[-target.cut_ordinal]]
         elif not target.any:
             return self._failure(
                 "BAD_RANGE", "Specify an edit id, original-time overlap, or any=True.", "original"

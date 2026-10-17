@@ -127,3 +127,17 @@ size of `AUTO_CAPTION_MAX_WORDS = 8`. Music operations store `track_id`, `duck_d
 `ALLOWED_MUSIC_TRACK_IDS = {"bundled_default"}`.
 **Rationale:** Anchors and integer-frame ranges survive replay, undo, redo, restores and reorders;
 the engine records music ducking intent without performing audio processing.
+
+## D011: Explicit restore ordinals and guest-question confirmation
+
+**Date:** 2026-10-17
+**Context:** Two conversation cases need deterministic selectors without timestamp guesses: restoring
+the second-to-last active cut, and deciding whether a guest-topic cut should also remove the host's
+immediately preceding question.
+**Decision:** `restore` accepts `{"kind":"cut_ordinal","from_end":N}` and counts only active edits
+that contain cut ranges; an unavailable ordinal is rejected with `NO_TARGET` and names the number
+of active cut edits. A speaker-constrained topic cut that has an immediately preceding question
+from another speaker asks whether to remove or keep that host question before applying anything.
+The answer is stored in the pending structured intent; the guest match remains speaker-constrained.
+**Rationale:** The cut selector is based on replayed history, and the lead-in decision is explicit,
+so neither operation guesses based on shifted clock positions or silently removes another speaker.

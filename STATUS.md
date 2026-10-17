@@ -1,6 +1,6 @@
 # IncuBrix – Status Tracker
 
-Updated: 2026-10-16 (Phase 0 Complete)
+Updated: 2026-10-17 (Phase 2D Engine Scenarios)
 
 ## Must-haves
 
@@ -36,7 +36,7 @@ Updated: 2026-10-16 (Phase 0 Complete)
 | Item | Status | Evidence |
 |------|--------|----------|
 | All must-haves | Not done | — |
-| 8-step worked example | Not done | — |
+| 8-step worked example (engine-level) | Done | `tests/scenarios/worked_example.yaml`; render step is a timeline-output marker |
 | Single-speaker video | Not done | — |
 | Multi-speaker video | Not done | — |
 
@@ -46,7 +46,7 @@ Updated: 2026-10-16 (Phase 0 Complete)
 | Edits that shift each other | Not done | — |
 | Ambiguity/references | Not done | — |
 | Conflicts | Not done | — |
-| Two speakers | Not done | — |
+| Two speakers (engine-level) | Done | `tests/scenarios/guest_topic_host_leadin.yaml`; `tests/scenarios/guest_topic_remove_host_leadin.yaml` |
 
 ### Outstanding
 | Item | Status | Evidence |
@@ -66,3 +66,16 @@ Updated: 2026-10-16 (Phase 0 Complete)
 | Allow-listed music intent, conflict, replacement and restore | Done | `tests/unit/test_phase2c_ops.py` |
 | Three-run determinism for each new operation | Done | `tests/unit/test_phase2c_ops.py` |
 | Engine statement coverage | Done (100%) | `tests/unit/test_phase2c_ops.py`; full coverage run reports 100% for `incubrix.engine` |
+
+## Phase 2D: Worked example and engine hard cases
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| YAML scenario harness; all scenarios run three times with per-step hash comparison | Done | `tests/test_scenarios.py`; `tests/scenarios/README.md` |
+| Eight-step worked example with word-anchored caption and reversible intro restore | Done (engine-level) | `tests/scenarios/worked_example.yaml`; rendering itself remains deferred |
+| Caption dormancy and revival; reorder with mute/bleep and filler protection | Done | `tests/scenarios/dormant_caption_restore.yaml`; `tests/scenarios/reorder_mute_bleep_filler.yaml` |
+| Current/original repeat confirmation, range parsing, out-of-range and destructive-cut rejection | Done | `tests/scenarios/repeat_current_time_cut.yaml`; `tests/scenarios/repeat_original_time_cut.yaml`; `tests/scenarios/time_formats.yaml`; `tests/scenarios/caption_out_of_range.yaml`; `tests/scenarios/speed_invalid_cut_all_partial.yaml` |
+| Restore by active cut ordinal while retaining music | Done | `tests/scenarios/restore_second_to_last_cut.yaml`; `tests/scenarios/restore_second_to_last_cut_insufficient.yaml` |
+| Guest-topic filtering and explicit host lead-in choice | Done | `tests/scenarios/guest_topic_host_leadin.yaml`; `tests/scenarios/guest_topic_remove_host_leadin.yaml`; `tests/scenarios/guest_topic_without_leadin.yaml` |
+| Speed overlap, protected pause, one-instruction undo, redo clearing | Done | `tests/scenarios/speed_overlap_and_deliberate_pause.yaml`; `tests/scenarios/one_instruction_one_undo.yaml`; `tests/scenarios/new_edit_clears_redo.yaml` |
+| Scenario coverage and engine coverage | Done | 18 YAML scenarios; `python -m pytest tests/ --cov=incubrix.engine --cov-report=term-missing -q` |

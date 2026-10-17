@@ -1,0 +1,25 @@
+name: dormant caption revives after restoring its sentence
+transcript: synthetic_5min
+duration_s: 10.0
+words:
+  - {text: intro, start_s: 0.2, end_s: 0.5}
+  - {text: welcome, start_s: 2.0, end_s: 2.3}
+  - {text: to, start_s: 2.4, end_s: 2.6}
+  - {text: channel., start_s: 2.7, end_s: 3.0}
+  - {text: ending., start_s: 5.0, end_s: 5.3}
+steps:
+  - ops:
+      - {op: add_caption, text: Welcome, target: {kind: phrase, text: welcome to channel}}
+    expect:
+      status: applied
+      caption: {text: Welcome, start_s: 2.0, end_s: 3.0}
+  - ops:
+      - {op: cut, target: {kind: phrase, text: welcome to channel}}
+    expect:
+      status: applied
+      warnings_contain: ["dormant"]
+  - ops:
+      - {op: restore, target: {kind: overlap, start: 1.8, end: 3.2}}
+    expect:
+      status: applied
+      caption: {text: Welcome, start_s: 2.0, end_s: 3.0}

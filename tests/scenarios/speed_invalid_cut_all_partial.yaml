@@ -1,0 +1,22 @@
+name: invalid speed whole-video cut and valid-part multi-operation
+transcript: synthetic_5min
+duration_s: 10.0
+words:
+  - {text: hello, start_s: 1.0, end_s: 1.3}
+  - {text: "um,", start_s: 3.0, end_s: 3.3}
+  - {text: world., start_s: 6.0, end_s: 6.3}
+steps:
+  - ops:
+      - {op: speed, target: {kind: time, start: 1.0, end: 2.0}, factor: 10.0}
+    expect: {status: rejected, error_code: INVALID_SPEED}
+  - ops:
+      - {op: cut, target: {kind: time, from_start: 10.0}}
+    expect: {status: rejected, error_code: CUT_ALL}
+  - ops:
+      - {op: cut, target: {kind: time, start: 0.0, end: 1.0}}
+      - {op: speed, target: {kind: time, start: 1.0, end: 2.0}, factor: 10.0}
+      - {op: add_music, track_id: bundled_default}
+    expect:
+      status: applied
+      warnings_contain: ["speed", "INVALID_SPEED"]
+      edit_count: 1

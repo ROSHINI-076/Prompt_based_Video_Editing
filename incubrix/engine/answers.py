@@ -41,6 +41,7 @@ from incubrix.engine.resolver import (
     PhraseTarget,
     ReorderDestination,
     Resolution,
+    ResolutionOption,
     Resolver,
     RestoreTarget,
     TimeTarget,
@@ -243,7 +244,7 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
                 choice=choice,
             )
         )
-    if kind in ("edit", "overlap", "any"):
+    if kind in ("edit", "overlap", "any", "cut_ordinal"):
         overlap = None
         if kind == "overlap":
             start = target.get("start")
@@ -256,10 +257,16 @@ def _target_resolution(target_value: Any, resolver: Resolver) -> Resolution:
         edit_id = target.get("edit_id") if kind == "edit" else None
         if kind == "edit" and (not isinstance(edit_id, str) or not edit_id):
             raise _InputError("INVALID_ARGUMENT", "Restore edit target requires an edit id.")
+        cut_ordinal = target.get("from_end") if kind == "cut_ordinal" else None
+        if kind == "cut_ordinal" and (
+            isinstance(cut_ordinal, bool) or not isinstance(cut_ordinal, int)
+        ):
+            raise _InputError("INVALID_ARGUMENT", "Cut ordinal from_end must be an integer.")
         return resolver.resolve_restore(
             RestoreTarget(
                 edit_id=edit_id,
                 overlap=overlap,
+                cut_ordinal=cut_ordinal,
                 any=kind == "any",
                 choice=choice,
             )
@@ -592,6 +599,43 @@ def _resolve_part(
     resolved, ambiguous_path = _active_target_path(op, resolver)
     if resolved.status != "RESOLVED":
         return [], resolved, ambiguous_path, name, [], None
+    target = _target_dict(op.get("target"))
+    if name == "cut" and target.get("kind") == "topic" and target.get("speaker"):
+        lead_in = resolver.resolve_host_lead_in(
+            resolved.word_ids,
+            target["speaker"],
+        )
+        host_question_choice = target.get("host_question_choice")
+        if lead_in is not None and host_question_choice not in {
+            "keep_host_question",
+            "remove_host_question",
+        }:
+            return (
+                [],
+                Resolution(
+                    status="AMBIGUOUS",
+                    detail=(
+                        "Should the host's lead-in question also be removed, or should it be kept?"
+                    ),
+                    note=lead_in.note,
+                    options=[
+                        ResolutionOption(
+                            choice="remove_host_question",
+                            snippet="Also remove the host's question",
+                        ),
+                        ResolutionOption(
+                            choice="keep_host_question",
+                            snippet="Keep the host's question",
+                        ),
+                    ],
+                ),
+                "host_lead_in",
+                name,
+                [],
+                None,
+            )
+        if lead_in is not None and host_question_choice == "remove_host_question":
+            resolved.source_ranges = sorted(resolved.source_ranges + lead_in.source_ranges)
 
     if name == "cut":
         if not resolved.source_ranges:
@@ -760,6 +804,8 @@ def _option_dict(option: Any) -> dict:
 
 
 def _clarification_question(op: Mapping, resolution: Resolution) -> str:
+    if resolution.detail and resolution.detail.startswith("Should the host's lead-in question"):
+        return resolution.detail
     target = op.get("target")
     target_data = dict(target) if isinstance(target, Mapping) else {}
     query = target_data.get("text", target_data.get("query"))
@@ -1054,6 +1100,19 @@ def _repeat_answer_choice(answer_text: str) -> bool | None:
 
 def _answer_choice(answer_text: str) -> int | str | None:
     normalized = answer_text.strip().casefold()
+    if normalized in {
+        "also remove the host's question",
+        "also remove host question",
+        "remove the host's question",
+        "remove host question",
+    }:
+        return "remove_host_question"
+    if normalized in {
+        "keep the host's question",
+        "keep the host question",
+        "keep host question",
+    }:
+        return "keep_host_question"
     normalized = re.sub(r"^(?:the|number)\s+", "", normalized)
     if normalized in ("all", "both", "all of them", "every one"):
         return "all"
@@ -1085,7 +1144,11 @@ def _answer_choice(answer_text: str) -> int | str | None:
 
 def _inject_choice(ops: list[dict], op_index: int, path: str, choice: int | str) -> None:
     selected_op = ops[op_index]
-    if path == "before":
+    if path == "host_lead_in":
+        target = _target_dict(selected_op.get("target"))
+        target["host_question_choice"] = choice
+        selected_op["target"] = target
+    elif path == "before":
         key = "before" if "before" in selected_op else "destination"
         target = dict(selected_op.get(key) or {})
         target["choice"] = choice

@@ -1,0 +1,13 @@
+name: original-time repeat is a no-change result
+transcript: synthetic_5min
+duration_s: 60.0
+steps:
+  - ops:
+      - {op: cut, target: {kind: time, start: 30.0, end: 40.0, policy: original}}
+    expect: {status: applied, duration_s: 50.0}
+  - ops:
+      - {op: cut, target: {kind: time, start: 30.0, end: 40.0, policy: original}}
+    expect:
+      status: rejected
+      error_code: NO_CHANGE
+      duration_s: 50.0

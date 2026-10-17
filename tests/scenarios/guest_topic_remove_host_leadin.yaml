@@ -1,0 +1,12 @@
+name: explicitly remove the host question with the guest topic
+transcript: synthetic_two_speaker
+duration_s: 8.0
+steps:
+  - ops:
+      - op: cut
+        target: {kind: topic, query: pricing, speaker: S2}
+    answer: "also remove the host's question"
+    expect:
+      clarification_status: needs_clarification
+      status: applied
+      alive_word_ids: [w0009]

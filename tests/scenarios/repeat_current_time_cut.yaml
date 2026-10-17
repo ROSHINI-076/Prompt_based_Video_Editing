@@ -1,0 +1,25 @@
+name: current-time repeated cut asks before shifting again
+transcript: synthetic_5min
+duration_s: 60.0
+words:
+  - {text: one, start_s: 5.0, end_s: 5.3}
+  - {text: two, start_s: 20.0, end_s: 20.3}
+steps:
+  - ops:
+      - {op: cut, target: {kind: time, start: 30.0, end: 40.0, policy: current}}
+    expect: {status: applied, duration_s: 50.0}
+  - ops:
+      - {op: cut, target: {kind: time, start: 30.0, end: 40.0, policy: current}}
+    answer: "no"
+    expect:
+      clarification_status: needs_clarification
+      status: rejected
+      error_code: NO_CHANGE
+      duration_s: 50.0
+  - ops:
+      - {op: cut, target: {kind: time, start: 30.0, end: 40.0, policy: current}}
+    answer: "yes"
+    expect:
+      clarification_status: needs_clarification
+      status: applied
+      duration_s: 40.0

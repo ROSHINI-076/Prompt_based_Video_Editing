@@ -1,0 +1,14 @@
+name: guest pricing cut asks whether to include the host lead-in
+transcript: synthetic_two_speaker
+duration_s: 8.0
+steps:
+  - ops:
+      - op: cut
+        target: {kind: topic, query: pricing, speaker: S2}
+    answer: keep the host question
+    expect:
+      clarification_status: needs_clarification
+      status: applied
+      question_contains: ["host", "question"]
+      options_contain: ["also remove", "keep"]
+      alive_word_ids: [w0001, w0002, w0003, w0004, w0009]

@@ -1,0 +1,6 @@
+name: styling without a caption has no target
+transcript: synthetic_5min
+steps:
+  - ops:
+      - {op: style, target: {kind: caption}, style: {font_size: 40}}
+    expect: {status: rejected, error_code: NO_TARGET}
