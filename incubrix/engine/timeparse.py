@@ -199,21 +199,19 @@ def parse_time_expression(text: str) -> TimePoint | TimeRange | None:
     t = re.sub(r"^the\s+", "", t)
 
     # 'first N seconds'
+    # Note: _parse_duration already handles bare number words internally,
+    # so no separate _parse_number_words fallback is needed here.
     m = re.fullmatch(r"first\s+(.+)", t)
     if m:
         n = _parse_duration(m.group(1))
-        if n is None:
-            # try treating as bare number (seconds)
-            n = _parse_number_words(m.group(1))
         if n is not None:
             return TimeRange(start=0.0, end=n, from_start=n)
 
     # 'last N seconds'
+    # Same: _parse_duration handles bare number words; no separate fallback needed.
     m = re.fullmatch(r"last\s+(.+)", t)
     if m:
         n = _parse_duration(m.group(1))
-        if n is None:
-            n = _parse_number_words(m.group(1))
         if n is not None:
             return TimeRange(from_end=n)
 

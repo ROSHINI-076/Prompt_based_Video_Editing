@@ -7,11 +7,23 @@ Key formulas:
   segment_output_length(seg) = max(1, round((src_out_f - src_in_f) / speed))
   src_to_out(f): sum of earlier segment lengths + (f - seg.src_in_f) / seg.speed
   A word is 'alive' if its midpoint frame lies inside any segment.
+  caption_display_span: enforces MIN_CAPTION_FRAMES minimum duration.
 """
 
 from __future__ import annotations
 
 from incubrix.engine.models import Segment, SourceInfo, Timeline, Word, segment_output_length
+
+# ── Minimum caption duration ──────────────────────────────────────
+#
+# Spec s6.5: "End time is at least MIN_CAPTION_S=0.7 after start, even when
+# sped up."  This is a named constant in the engine; the API layer can later
+# read it from env settings and pass it through.
+#
+# It is DERIVED at query time (when computing display times from anchors),
+# never stored as an output timestamp.
+
+MIN_CAPTION_S: float = 0.7
 
 
 # ── Pure helpers ──────────────────────────────────────────────────
@@ -60,6 +72,41 @@ def frames_to_seconds(frames: int, fps: float) -> float:
 def seconds_to_frames(seconds: float, fps: float) -> int:
     """Convert seconds to frames (round to nearest)."""
     return round(seconds * fps)
+
+
+def min_caption_frames(fps: float, min_s: float = MIN_CAPTION_S) -> int:
+    """Minimum caption duration in output frames.
+
+    min_caption_frames(30.0) = round(0.7 * 30) = 21 frames.
+    """
+    return round(min_s * fps)
+
+
+def caption_display_span(
+    start_out_f: int,
+    end_out_f: int,
+    total_out_frames: int,
+    fps: float,
+    min_s: float = MIN_CAPTION_S,
+) -> tuple[int, int]:
+    """Enforce the minimum caption duration rule.
+
+    Spec s6.5: "End time is at least MIN_CAPTION_S after start, even when
+    sped up."  The minimum is derived at query time from word anchors; it is
+    NEVER stored as an output timestamp.
+
+    Also caps at the timeline end so the caption never overshoots.
+
+    Returns (start_out_f, end_out_f) with the minimum enforced.
+    """
+    min_frames = min_caption_frames(fps, min_s)
+    # Enforce minimum end = start + min_frames
+    end_out_f = max(end_out_f, start_out_f + min_frames)
+    # Cap at the timeline end
+    end_out_f = min(end_out_f, total_out_frames)
+    # If capping moved end before start (video shorter than min), clamp start too
+    start_out_f = min(start_out_f, end_out_f)
+    return start_out_f, end_out_f
 
 
 # ── Layout class ──────────────────────────────────────────────────
@@ -115,7 +162,9 @@ class Layout:
                 offset = out_frame - self._out_starts[i]
                 src_frame = seg.src_in_f + round(offset * seg.speed)
                 return min(src_frame, seg.src_out_f - 1)
-        return None
+        # Unreachable: out_frame < self._total guarantees one segment matched.
+        # Kept as a safety net; covered by test_out_to_src_at_last_frame.
+        return None  # pragma: no cover
 
     def out_range_to_src_ranges(
         self, out_start: int, out_end: int
@@ -157,3 +206,29 @@ class Layout:
         if out_start is None or out_end is None:
             return None
         return (out_start, out_end)
+
+    def caption_out_span(
+        self,
+        start_word: Word,
+        end_word: Word,
+        fps: float,
+        min_s: float = MIN_CAPTION_S,
+    ) -> tuple[int, int] | None:
+        """Get the output frame span of a caption, enforcing minimum duration.
+
+        Computes the display span from the word anchors, then applies the
+        minimum caption duration rule (spec s6.5) and caps at the timeline end.
+
+        Returns None if neither anchor word is alive.
+        """
+        start_span = self.word_out_span(start_word, fps)
+        end_span = self.word_out_span(end_word, fps)
+
+        if start_span is None and end_span is None:
+            return None  # all anchor words cut → dormant
+
+        # Use whichever anchor is alive; fall back to the other
+        start_out = start_span[0] if start_span is not None else (end_span[0] if end_span else 0)
+        end_out = end_span[1] if end_span is not None else (start_span[1] if start_span else 0)
+
+        return caption_display_span(start_out, end_out, self._total, fps, min_s)
