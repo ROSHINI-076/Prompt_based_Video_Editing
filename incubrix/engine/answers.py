@@ -606,7 +606,7 @@ def _format_operation(op: AnyOp, fps: float) -> dict:
         }
     if isinstance(op, StyleOp):
         return {"op": "style", "overlay_id": op.overlay_id, "style": dict(op.style)}
-    if isinstance(op, (MuteOp, BleepOp)):
+    if isinstance(op, MuteOp | BleepOp):
         return {
             "op": op.op,
             "effect_id": op.effect_id,
@@ -913,7 +913,7 @@ def handle_instruction(
     commit together as a single undo step.
     """
     session.state.pending_question = None
-    if not isinstance(intent_ops, Sequence) or isinstance(intent_ops, (str, bytes)):
+    if not isinstance(intent_ops, Sequence) or isinstance(intent_ops, str | bytes):
         return _error_response(
             session, "INVALID_ARGUMENT", "Instruction operations must be a list."
         )
@@ -1169,7 +1169,7 @@ def handle_instruction(
         warning for warning in overlap_warning_summaries if warning not in overlap_notes
     )
     for op in resolved_ops:
-        if isinstance(op, (MuteOp, BleepOp)):
+        if isinstance(op, MuteOp | BleepOp):
             for word in session.state.transcript.words:
                 if word.confidence < LOW_CONFIDENCE_THRESHOLD and _id_in_word_interval(
                     word.id, op.start_word_id, op.end_word_id, session.state.transcript
