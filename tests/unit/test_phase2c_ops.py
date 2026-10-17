@@ -215,6 +215,32 @@ def test_protected_pause_survives_silence_removal_and_later_passes():
     assert session.get_timeline().segments
 
 
+def test_protected_pause_stays_anchored_after_cutting_earlier_words():
+    session = _session(
+        [("intro", 0.0, 0.3), ("context", 0.7, 1.0), ("hello", 2.0, 2.3), ("there.", 3.2, 3.5)]
+    )
+
+    cut = _say(session, {"op": "cut", "target": {"kind": "time", "start": 0.0, "end": 1.5}})
+    assert cut["status"] == "applied"
+    assert "w0001" not in _alive_word_ids(session)
+    assert "w0002" not in _alive_word_ids(session)
+    assert "w0003" in _alive_word_ids(session)
+
+    protected = _say(
+        session,
+        {"op": "keep_pause", "target": {"kind": "word", "text": "hello"}},
+    )
+    assert protected["status"] == "applied"
+    assert session.get_timeline().protected_pause_after_word_ids == ["w0003"]
+
+    silence = _say(session, {"op": "remove_silence", "min_gap_s": 0.5})
+
+    assert silence["status"] == "rejected"
+    assert silence["error"]["code"] == "NO_MATCH"
+    assert any("Protected pause after 'hello'" in item for item in silence["warnings"])
+    assert session.get_timeline().protected_pause_after_word_ids == ["w0003"]
+
+
 def test_duplicate_keep_pause_is_no_change():
     session = _session([("hello", 0.0, 0.3), ("there.", 1.2, 1.5)])
     pause = {"op": "keep_pause", "target": {"kind": "word", "text": "hello"}}
@@ -420,9 +446,7 @@ def test_music_conflict_without_a_history_edit_still_names_the_current_track():
     ],
 )
 def test_phase2c_operations_are_deterministic_on_three_runs(words, intent):
-    entries = [("one", 0.0, 0.3), ("um,", 1.0, 1.3), ("three.", 2.0, 2.3)]
-    if intent["op"] != "remove_fillers":
-        entries = _word_entries(words, interval=1.0)
+    entries = _word_entries(words, interval=1.0)
     hashes = []
     for _ in range(3):
         session = _session(entries, sentences=[(0, len(entries) - 1)])
