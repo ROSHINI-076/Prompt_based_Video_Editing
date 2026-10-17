@@ -167,6 +167,15 @@ def _assert_step_expectations(
         for actual, desired in zip(ranges, expect["operation_ranges"]):
             assert actual["start_s"] == pytest.approx(desired[0], abs=0.05)
             assert actual["end_s"] == pytest.approx(desired[1], abs=0.05)
+    if "operation_ranges_within" in expect:
+        ranges = [
+            source_range
+            for operation in result["operations"]
+            for source_range in operation.get("ranges", [])
+        ]
+        assert len(ranges) == len(expect["operation_ranges_within"])
+        for actual, bounds in zip(ranges, expect["operation_ranges_within"]):
+            assert bounds[0] <= actual["start_s"] < actual["end_s"] <= bounds[1]
     if "timeline" in expect:
         output = result.get("render_output") or timeline_to_output(
             session.get_timeline(), session.state.transcript

@@ -22,6 +22,8 @@ steps:
     expect:
       clarification_status: needs_clarification
       status: applied
+      duration_s: {value: 265.0, tolerance: 0.2}
+      operation_ranges_within: [[159.9, 165.0]]
       question_contains: ["pricing", "3"]
       options_contain: ["all"]
       summary_contains: ["current"]
@@ -31,18 +33,21 @@ steps:
         factor: 2.0
     expect:
       status: applied
+      duration_s: {value: 250.0, tolerance: 0.2}
       summary_contains: ["current (edited) time", "original"]
   - ops:
       - op: restore
         target: {kind: overlap, start: 0.0, end: 30.0}
     expect:
       status: applied
+      duration_s: {value: 280.0, tolerance: 0.2}
       caption: {text: Welcome!, start_s: 42.0, end_s: 43.9}
       summary_contains: ["restore"]
   - ops:
       - op: undo
     expect:
       status: applied
+      duration_s: {value: 250.0, tolerance: 0.2}
       hash_equals_step: 4
       caption: {text: Welcome!, start_s: 12.0, end_s: 13.9}
   - ops:
