@@ -1,6 +1,13 @@
 # Run lint, format, and unit + integration tests
 # Starts postgres and minio through docker compose if not already running
 
+# On some Windows Docker Desktop / Buildx setups, the build permission gate can
+# block docker compose before the app is built. Set it only for this process so
+# the rest of the environment remains unchanged.
+if (-not $env:BUILDX_BAKE_ENTITLEMENTS_FS) {
+    $env:BUILDX_BAKE_ENTITLEMENTS_FS = "0"
+}
+
 Write-Host "Ensuring Postgres and MinIO containers are running..."
 try {
     docker compose up -d postgres minio minio-init
