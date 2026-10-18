@@ -33,6 +33,7 @@ jobs:
         ports:
           - 9000:9000
         options: >-
+          --user 0:0
           --health-cmd "wget -q --spider http://localhost:9000/minio/health/live"
           --health-interval 5s
           --health-timeout 3s
