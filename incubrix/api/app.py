@@ -252,12 +252,9 @@ async def create_video(request: Request) -> JSONResponse:
     """Queue an intake/transcription job from a multipart upload or public URL."""
     settings = get_settings()
     payload: dict[str, Any] = {}
-    form = None
-    try:
+    content_type = request.headers.get("content-type", "").split(";", maxsplit=1)[0].lower()
+    if content_type in {"multipart/form-data", "application/x-www-form-urlencoded"}:
         form = await request.form()
-    except Exception:
-        form = None
-    if form is not None:
         uploaded = form.get("file")
         if uploaded is not None:
             content = await uploaded.read()
@@ -466,13 +463,18 @@ async def ready() -> Response:
         errors.append(f"minio: {exc}")
     if errors:
         details = {"checks": errors}
+        error_code = (
+            "DATABASE_UNAVAILABLE"
+            if any(error.startswith("postgres:") for error in errors)
+            else "STORAGE_UNAVAILABLE"
+        )
         return JSONResponse(
             status_code=503,
             content={
                 "status": "unavailable",
                 "errors": errors,
                 "error": {
-                    "code": "DATABASE_UNAVAILABLE",
+                    "code": error_code,
                     "message": "A required dependency is unavailable.",
                     "retryable": True,
                     "details": details,
