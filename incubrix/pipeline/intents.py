@@ -243,6 +243,23 @@ class IntentOps(StrictModel):
     ops: list[IntentOp] = Field(min_length=1)
 
 
+def intent_json_schema() -> dict[str, Any]:
+    """Return a version-stable schema, omitting the default true object allowance."""
+    schema = IntentOps.model_json_schema()
+
+    def normalize(value: Any) -> Any:
+        if isinstance(value, dict):
+            normalized = {key: normalize(item) for key, item in value.items()}
+            if normalized.get("additionalProperties") is True:
+                del normalized["additionalProperties"]
+            return normalized
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        return value
+
+    return normalize(schema)
+
+
 __all__ = [
     "CaptionAnchorTarget",
     "ContentTarget",
@@ -250,4 +267,5 @@ __all__ = [
     "IntentOps",
     "PauseTarget",
     "RestoreTarget",
+    "intent_json_schema",
 ]

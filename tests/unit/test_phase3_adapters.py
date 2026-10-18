@@ -38,7 +38,7 @@ from incubrix.engine.models import Sentence, Transcript, Word
 from incubrix.engine.session import SessionManager
 from incubrix.pipeline.cost import estimate_llm_cost
 from incubrix.pipeline.instructions import run_instruction
-from incubrix.pipeline.intents import IntentOps
+from incubrix.pipeline.intents import IntentOps, intent_json_schema
 from tests.unit.conftest import source as source_fixture
 from tests.unit.conftest import transcript as transcript_fixture
 
@@ -989,4 +989,15 @@ def test_transcript_types_are_engine_owned() -> None:
 
 def test_exported_intent_json_schema_matches_models() -> None:
     schema_path = Path(__file__).parents[2] / "schemas" / "intent_ops.schema.json"
-    assert json.loads(schema_path.read_text(encoding="utf-8")) == IntentOps.model_json_schema()
+    assert json.loads(schema_path.read_text(encoding="utf-8")) == intent_json_schema()
+
+
+def test_intent_json_schema_omits_explicit_default_object_allowance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        IntentOps,
+        "model_json_schema",
+        classmethod(lambda cls: {"additionalProperties": True}),
+    )
+    assert intent_json_schema() == {}

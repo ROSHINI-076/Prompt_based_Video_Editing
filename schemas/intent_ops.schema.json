@@ -32,7 +32,6 @@
           "title": "Target"
         },
         "style": {
-          "additionalProperties": true,
           "title": "Style",
           "type": "object"
         }
@@ -941,7 +940,6 @@
           "$ref": "#/$defs/CaptionTarget"
         },
         "style": {
-          "additionalProperties": true,
           "minProperties": 1,
           "title": "Style",
           "type": "object"

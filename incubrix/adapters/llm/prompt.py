@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 
-from incubrix.pipeline.intents import IntentOps
+from incubrix.pipeline.intents import intent_json_schema
 
 PROMPT_VERSION = "intent-ops-v1"
 
 
 def system_prompt() -> str:
     """Build the parser contract from the source-of-truth pydantic schema."""
-    schema = json.dumps(IntentOps.model_json_schema(), sort_keys=True, separators=(",", ":"))
+    schema = json.dumps(intent_json_schema(), sort_keys=True, separators=(",", ":"))
     return f"""You translate one user instruction into the editing intent schema below.
 Never invent timestamps from the transcript; only copy times the user stated.
 Resolve words and topics by meaning only as selectors; never output transcript-derived times.
