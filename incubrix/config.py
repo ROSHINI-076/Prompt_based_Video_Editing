@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     API_TOKEN: str = ""  # bearer-token for auth; empty = no auth
     RATE_LIMIT_PER_MINUTE: int = 60
+    MAX_UPLOAD_BYTES: int = 524_288_000
 
     # ── Database ────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+psycopg2://incubrix:incubrix@postgres:5432/incubrix"
@@ -62,13 +63,20 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 500
     URL_FETCH_TIMEOUT_S: int = 120
     URL_FETCH_MAX_SIZE_MB: int = 500
+    MAX_DOWNLOAD_BYTES: int = 524_288_000
+    URL_MAX_REDIRECTS: int = 3
 
     # ── Jobs / callbacks ────────────────────────────────────────────
     WORKER_POLL_INTERVAL_S: float = 1.0
     WORKER_CONCURRENCY: int = 2
     HMAC_SECRET: str = "change-me-in-production"
+    CALLBACK_HMAC_SECRET: str = "change-me-in-production"
     CALLBACK_MAX_RETRIES: int = 3
     CALLBACK_BACKOFF_S: float = 2.0
+    JOB_MAX_ATTEMPTS: int = 3
+    JOB_HEARTBEAT_STALE_S: int = 120
+    IDEMPOTENCY_TTL_S: int = 86_400
+    STT_MOCK_TRANSCRIPT_PATH: str = ""
 
     # ── Logging ─────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"

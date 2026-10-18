@@ -114,6 +114,18 @@ reported.
 **Rationale:** The explicit preceding-word guard protects grammatical "like" phrases, while the
 comma/pause signal permits conservative cleanup of discourse fillers.
 
+## D011: Durable job leases and retry scheduling
+
+**Date:** 2026-10-18
+**Context:** Phase 4B needs Postgres workers to claim work safely, recover crashes, and retry
+transient failures without introducing Redis.
+**Decision:** Jobs are claimed in a transaction using `SELECT ... FOR UPDATE SKIP LOCKED`. A
+heartbeat lease identifies the current worker; expired leases are requeued until the attempt limit.
+The queue records `available_at` so retries use exponential backoff without sleeping while holding a
+database connection.
+**Rationale:** Postgres remains the sole queue and job state survives process restarts. `available_at`
+is an additional scheduling field required to represent backoff durably.
+
 ## D010: Source-anchored silence protection and music intent
 
 **Date:** 2026-10-17
@@ -205,4 +217,3 @@ with a verification mechanism to re-hash the source after a session.
 - `verify_source` re-downloads/streams the stored object, computes its SHA-256, and compares it to
   the recorded intake SHA-256. Any tampering or corruption returns an invalid result and raises
   `SourceIntegrityError`.
-

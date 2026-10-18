@@ -1,6 +1,6 @@
 # IncuBrix – Status Tracker
 
-Updated: 2026-10-18 (Phase 3 Adapters and Instruction Pipeline)
+Updated: 2026-10-18 (Phase 4B Job Queue)
 
 ## Must-haves
 
@@ -13,7 +13,7 @@ Updated: 2026-10-18 (Phase 3 Adapters and Instruction Pipeline)
 | 5 | Render matches timeline | Not done | Scheduled for Phase 5 (renderer & verifier) |
 | 6 | Undo/redo/restore | Done (engine scope) | `incubrix/engine/session.py`; `tests/scenarios/worked_example.yaml`; Phase 3 pipeline test |
 | 7 | One stated time policy | Done (engine scope) | `incubrix/engine/answers.py`; `tests/scenarios/worked_example.yaml` |
-| 8 | Integration Standard + runners + demo | Partial | Phase 0 scaffold, tooling & Phase 4A data layer verified |
+| 8 | Integration Standard + runners + demo | Partial | Phase 0 scaffold, Phase 4A data layer and Phase 4B queue verified; HTTP API incomplete |
 
 ## Integration Standard (10 points)
 
@@ -21,7 +21,7 @@ Updated: 2026-10-18 (Phase 3 Adapters and Instruction Pipeline)
 |---|-------------|--------|----------|
 | 1 | One-command start/test | Done | `docker-compose.yml` (all 4+1 containers healthy), `Makefile`, `tests/test_smoke.py` |
 | 2 | OpenAPI 3.1 | Done | `openapi.yaml` generated from FastAPI app (OpenAPI 3.1.0) |
-| 3 | Background jobs | Not done | Scheduled for Phase 4 |
+| 3 | Background jobs | Partial | `incubrix/jobs/queue.py`, `incubrix/jobs/worker.py`, `incubrix/jobs/handlers.py`; HTTP job creation/routes still pending |
 | 4 | Safe retries (Idempotency-Key) | Not done | Scheduled for Phase 4 |
 | 5 | Clear errors | Partial | Standard error JSON in global exception handler |
 | 6 | Configuration | Done | `incubrix/config.py` (pydantic-settings), `.env.example` |
@@ -109,3 +109,13 @@ Updated: 2026-10-18 (Phase 3 Adapters and Instruction Pipeline)
 | Content-addressed source storage under sha256 (never overwritten) & streaming `verify_source` | Done | `incubrix/adapters/storage/s3.py`; `tests/integration/test_data_layer.py` |
 | Integration tests against real Postgres and MinIO containers | Done | `tests/integration/test_data_layer.py` (6 integration tests passed) |
 | CI workflow updated with Postgres & MinIO service containers; `scripts/test.ps1` and `Makefile` test target | Done | `.github/workflows/ci.yml`; `Makefile`; `scripts/test.ps1` |
+
+## Phase 4B: Job queue and HTTP API
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Postgres jobs table and Alembic migration | Done | `incubrix/db/models.py`; `incubrix/db/migrations/versions/48c62ca2a741_add_jobs_table.py` |
+| SKIP LOCKED claims, progress, retries, and stale-lease recovery | Done (queue state tests use SQLite) | `incubrix/jobs/queue.py`; `tests/unit/test_job_queue.py` |
+| Worker loop, heartbeats, signed callback delivery, reserved render handler | Partial (render intentionally returns NOT_IMPLEMENTED; intake integration pending) | `incubrix/jobs/worker.py`; `incubrix/jobs/handlers.py`; `tests/unit/test_job_worker.py` |
+| Idempotency, error registry, bearer auth/rate limit, and HTTP routes | Not done | Planned in subsequent Phase 4B steps |
+| SSRF-protected URL intake and HTTP end-to-end tests | Partial (worker URL validation/download implemented; API routes/tests pending) | `incubrix/jobs/handlers.py` |

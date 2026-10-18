@@ -239,6 +239,35 @@ class PendingQuestionRecord(Base):
     )
 
 
+class JobRecord(Base):
+    """Durable background job claimed and completed by the Postgres worker."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued", nullable=False, index=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+    error: Mapped[dict[str, Any] | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    locked_by: Mapped[str | None] = mapped_column(String(128))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    callback_url: Mapped[str | None] = mapped_column(Text)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ParseCacheRecord(Base):
     """Cached parsed operations for deterministic LLM translation."""
 

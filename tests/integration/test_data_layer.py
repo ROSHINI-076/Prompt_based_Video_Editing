@@ -89,6 +89,7 @@ class TestDatabaseIntegration:
         expected = [
             "alembic_version",
             "edits",
+            "jobs",
             "parse_cache",
             "pending_questions",
             "redo_edits",
