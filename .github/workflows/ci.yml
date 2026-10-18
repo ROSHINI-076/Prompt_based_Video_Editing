@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      BUILDX_BAKE_ENTITLEMENTS_FS: "0"
 
     services:
       postgres:
