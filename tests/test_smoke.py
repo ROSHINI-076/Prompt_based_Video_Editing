@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -86,3 +87,54 @@ def test_ready_endpoint_up():
         resp = client.get("/ready")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ready"}
+
+
+def test_api_token_required_for_api_routes():
+    """All /api/v1 routes require a valid bearer token before any lookup."""
+    from incubrix.api.app import app
+    from incubrix.config import get_settings
+
+    client = TestClient(app)
+    no_token = client.get("/api/v1/jobs/nonexistent")
+    assert no_token.status_code == 401
+    assert no_token.json()["error"]["code"] == "UNAUTHORIZED"
+    assert no_token.headers.get("www-authenticate", "").lower() == "bearer"
+
+    wrong_token = client.get(
+        "/api/v1/jobs/nonexistent", headers={"Authorization": "Bearer wrong-token"}
+    )
+    assert wrong_token.status_code == 401
+
+    settings = get_settings()
+    with patch("incubrix.api.app.JobQueue.get", return_value=None):
+        valid_token = client.get(
+            "/api/v1/jobs/nonexistent",
+            headers={"Authorization": f"Bearer {settings.API_TOKEN}"},
+        )
+    assert valid_token.status_code == 404
+
+    health = client.get("/health")
+    with patch("sqlalchemy.create_engine") as mock_engine, patch("boto3.client") as mock_boto:
+        mock_conn = MagicMock()
+        mock_engine.return_value.connect.return_value.__enter__.return_value = mock_conn
+        mock_boto.return_value = MagicMock()
+        ready = client.get("/ready")
+    assert health.status_code == 200
+    assert ready.status_code == 200
+
+
+def test_auth_requires_token_unless_explicit_test_bypass(monkeypatch):
+    """Startup refuses empty API_TOKEN unless TEST_MODE + AUTH_DISABLED is explicit."""
+    from incubrix.config import validate_auth_configuration
+
+    monkeypatch.setenv("API_TOKEN", "")
+    monkeypatch.setenv("TEST_MODE", "false")
+    monkeypatch.setenv("AUTH_DISABLED", "false")
+    with pytest.raises(RuntimeError, match="API_TOKEN is required"):
+        validate_auth_configuration()
+
+    monkeypatch.setenv("API_TOKEN", "")
+    monkeypatch.setenv("TEST_MODE", "true")
+    monkeypatch.setenv("AUTH_DISABLED", "true")
+    settings = validate_auth_configuration()
+    assert settings.AUTH_DISABLED is True

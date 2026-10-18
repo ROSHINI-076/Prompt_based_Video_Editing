@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 import tempfile
 import time
@@ -12,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -29,7 +30,26 @@ from incubrix.pipeline.instructions import run_instruction
 
 log = get_logger(__name__)
 
-api_router = APIRouter(prefix="/api/v1")
+
+def require_api_token(request: Request) -> None:
+    """Enforce bearer-token auth for every /api/v1 route before any lookup."""
+    settings = get_settings()
+    if settings.AUTH_DISABLED and settings.TEST_MODE:
+        return
+
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+
+    if not hmac.compare_digest(token, settings.API_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid bearer token.")
+
+
+api_router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_token)])
 
 _RATE_BUCKETS: defaultdict[str, deque[float]] = defaultdict(deque)
 
@@ -65,20 +85,6 @@ async def security_and_correlation_middleware(request: Request, call_next):
         return response
 
     settings = get_settings()
-    if settings.API_TOKEN:
-        auth = request.headers.get("authorization", "")
-        if not auth.startswith("Bearer ") or auth.replace("Bearer ", "", 1) != settings.API_TOKEN:
-            body = {
-                "error": {
-                    "code": "UNAUTHORIZED",
-                    "message": "Valid bearer token required.",
-                    "retryable": False,
-                    "details": None,
-                }
-            }
-            response = JSONResponse(status_code=401, content=body)
-            response.headers["X-Correlation-Id"] = cid
-            return response
 
     if settings.RATE_LIMIT_PER_MINUTE > 0:
         client_key = request.headers.get(
@@ -111,7 +117,10 @@ async def security_and_correlation_middleware(request: Request, call_next):
 async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
     """Standard application-defined error payloads."""
     del request
-    return JSONResponse(status_code=exc.status, content=exc.as_payload())
+    response = JSONResponse(status_code=exc.status, content=exc.as_payload())
+    if exc.status == 401:
+        response.headers["WWW-Authenticate"] = "Bearer"
+    return response
 
 
 @app.exception_handler(RequestValidationError)
@@ -149,7 +158,10 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         payload = api_error("RATE_LIMITED", "Rate limit exceeded.", status=429)
     else:
         payload = api_error("INTERNAL_ERROR", "An unexpected error occurred.", status=500)
-    return JSONResponse(status_code=code, content=payload.as_payload())
+    response = JSONResponse(status_code=code, content=payload.as_payload())
+    if code == 401:
+        response.headers["WWW-Authenticate"] = "Bearer"
+    return response
 
 
 @app.exception_handler(Exception)

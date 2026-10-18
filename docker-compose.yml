@@ -37,11 +37,13 @@ services:
 
   minio-init:
     build: .
+    env_file:
+      - .env
     environment:
       S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      S3_BUCKET: incubrix
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-incubrix}
     depends_on:
       minio:
         condition: service_healthy
@@ -52,19 +54,26 @@ services:
 
   api:
     build: .
-    command: uvicorn incubrix.api.app:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql+psycopg2://incubrix:incubrix@postgres:5432/incubrix
-      DATABASE_URL_ASYNC: postgresql+asyncpg://incubrix:incubrix@postgres:5432/incubrix
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      S3_BUCKET: incubrix
-      LOG_LEVEL: INFO
-      LOG_FORMAT: json
-      STT_PROVIDER: mock
-      LLM_PROVIDER: mock
-      EMBEDDER_PROVIDER: mock
+      API_TOKEN: ${API_TOKEN:-}
+      CALLBACK_HMAC_SECRET: ${CALLBACK_HMAC_SECRET:-}
+      HMAC_SECRET: ${HMAC_SECRET:-}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://incubrix:incubrix@postgres:5432/incubrix}
+      DATABASE_URL_ASYNC: ${DATABASE_URL_ASYNC:-postgresql+psycopg://incubrix:incubrix@postgres:5432/incubrix}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-incubrix}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      STT_PROVIDER: ${STT_PROVIDER:-mock}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      EMBEDDER_PROVIDER: ${EMBEDDER_PROVIDER:-mock}
+      TEST_MODE: ${TEST_MODE:-false}
+      AUTH_DISABLED: ${AUTH_DISABLED:-false}
+    command: uvicorn incubrix.api.app:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     depends_on:
@@ -85,19 +94,26 @@ services:
 
   worker:
     build: .
-    command: python -m incubrix.jobs.worker
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql+psycopg2://incubrix:incubrix@postgres:5432/incubrix
-      DATABASE_URL_ASYNC: postgresql+asyncpg://incubrix:incubrix@postgres:5432/incubrix
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      S3_BUCKET: incubrix
-      LOG_LEVEL: INFO
-      LOG_FORMAT: json
-      STT_PROVIDER: mock
-      LLM_PROVIDER: mock
-      EMBEDDER_PROVIDER: mock
+      API_TOKEN: ${API_TOKEN:-}
+      CALLBACK_HMAC_SECRET: ${CALLBACK_HMAC_SECRET:-}
+      HMAC_SECRET: ${HMAC_SECRET:-}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://incubrix:incubrix@postgres:5432/incubrix}
+      DATABASE_URL_ASYNC: ${DATABASE_URL_ASYNC:-postgresql+psycopg://incubrix:incubrix@postgres:5432/incubrix}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-incubrix}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      STT_PROVIDER: ${STT_PROVIDER:-mock}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      EMBEDDER_PROVIDER: ${EMBEDDER_PROVIDER:-mock}
+      TEST_MODE: ${TEST_MODE:-false}
+      AUTH_DISABLED: ${AUTH_DISABLED:-false}
+    command: python -m incubrix.jobs.worker
     depends_on:
       postgres:
         condition: service_healthy

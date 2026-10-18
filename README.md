@@ -2,12 +2,25 @@
 
 ## Python version
 
-Python 3.11 or newer is required. This matches the package metadata, Ruff and mypy
-configuration, CI workflow, and Docker image.
+Python 3.11 or newer is required. This matches the package metadata, Ruff and mypy configuration, CI workflow, and Docker image.
 
 ## Local checks
 
 Run `make test` to check Ruff lint, Ruff formatting, and the pytest suite.
+
+## Authentication
+
+Create a local `.env` file from `.env.example`, then generate a random bearer token:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Paste that value into `API_TOKEN` in `.env` and keep the same value in `docker-compose.yml` via the shell environment or `.env` file. Send it on every authenticated request as:
+
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:8000/api/v1/jobs/nonexistent
+```
 
 ## Troubleshooting (Windows)
 

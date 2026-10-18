@@ -19,7 +19,8 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DEBUG: bool = False
-    API_TOKEN: str = ""  # bearer-token for auth; empty = no auth
+    API_TOKEN: str = ""  # required unless TEST_MODE + AUTH_DISABLED are both explicitly true
+    AUTH_DISABLED: bool = False  # only for explicit local/test-only startup bypasses
     RATE_LIMIT_PER_MINUTE: int = 60
     MAX_UPLOAD_BYTES: int = 524_288_000
 
@@ -92,6 +93,17 @@ class Settings(BaseSettings):
     TEST_MODE: bool = False  # enables file:// URL intake
 
 
+def validate_auth_configuration(settings: Settings | None = None) -> Settings:
+    """Require a bearer token unless an explicit test-only bypass is enabled."""
+    resolved = settings or Settings()
+    if not resolved.API_TOKEN and not (resolved.TEST_MODE and resolved.AUTH_DISABLED):
+        raise RuntimeError(
+            "API_TOKEN is required unless TEST_MODE=true and "
+            "AUTH_DISABLED=true are both set explicitly."
+        )
+    return resolved
+
+
 def get_settings() -> Settings:
     """Return a cached Settings instance."""
-    return Settings()
+    return validate_auth_configuration()
