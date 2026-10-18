@@ -8,6 +8,20 @@ Python 3.11 or newer is required. This matches the package metadata, Ruff and my
 
 Run `make test` to check Ruff lint, Ruff formatting, and the pytest suite.
 
+## Clean clone check
+
+Use a path without spaces, for example `E:\prompt based video editing` is acceptable, but avoid a folder name like `Prompt based video editing` that includes spaces.
+
+```powershell
+git clone <repo-url> E:\incubrix
+cd E:\incubrix
+Copy-Item .env.example .env
+# set API_TOKEN in .env to a secret value you control
+# example: API_TOKEN=replace-me
+
+docker compose up -d --build
+```
+
 ## Authentication
 
 Create a local `.env` file from `.env.example`, then generate a random bearer token:
