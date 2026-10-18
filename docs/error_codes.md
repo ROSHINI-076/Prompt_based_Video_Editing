@@ -23,6 +23,7 @@
 | `VALIDATION_ERROR` | Request body or params failed validation. |
 | `NOT_FOUND` | A requested resource, video, transcript, job or session does not exist. |
 | `UNAUTHORIZED` | A valid bearer token was not supplied. |
+| `METHOD_NOT_ALLOWED` | The requested HTTP method is not supported for this route. |
 | `PAYLOAD_TOO_LARGE` | The upload or request body exceeded the configured limit. |
 | `RATE_LIMITED` | The request was rejected by the per-token rate limiter. |
 | `IDEMPOTENCY_KEY_REUSED` | The same Idempotency-Key was used with a different request body. |

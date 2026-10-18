@@ -189,6 +189,8 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         payload = api_error("UNAUTHORIZED", "Valid bearer token required.", status=401)
     elif code == 404:
         payload = api_error("NOT_FOUND", "The requested resource was not found.", status=404)
+    elif code == 405:
+        payload = api_error("METHOD_NOT_ALLOWED", "Method not allowed.", status=405)
     elif code == 413:
         payload = api_error(
             "PAYLOAD_TOO_LARGE", "Payload exceeds the configured size limit.", status=413
@@ -319,7 +321,10 @@ async def create_session(request: Request) -> dict[str, Any]:
     video_id = body.get("video_id")
     if not video_id:
         raise api_error(
-            "VALIDATION_ERROR", "A video_id is required to create a session.", status=422
+            "VALIDATION_ERROR",
+            "A video_id is required to create a session.",
+            status=422,
+            details={"field": "video_id"},
         )
     repo = SessionRepository()
     loaded = repo.create_session(video_id)

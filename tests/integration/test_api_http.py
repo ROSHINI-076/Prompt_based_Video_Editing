@@ -104,11 +104,13 @@ def _create_session(client: TestClient, headers: dict[str, str]) -> str:
     return response.json()["session_id"]
 
 
-def _assert_standard_error(response, status: int, code: str) -> None:
+def _assert_standard_error(response, status: int, code: str, retryable: bool | None = None) -> None:
     assert response.status_code == status, response.text
     error = response.json()["error"]
     assert error["code"] == code
     assert set(error) == {"code", "message", "retryable", "details"}
+    if retryable is not None:
+        assert error["retryable"] is retryable
 
 
 def _closed_local_port() -> int:
@@ -449,6 +451,75 @@ def test_http_callback_failures_retry_log_and_do_not_fail_job(
     assert job["error"] is None
     assert len(received) == 2
     assert sum("job_callback_failed" in record.getMessage() for record in caplog.records) == 2
+
+
+def test_http_unauthorized_error_shape(http_client) -> None:
+    client, _ = http_client
+    response = client.get("/api/v1/jobs/missing")
+
+    _assert_standard_error(response, 401, "UNAUTHORIZED", retryable=False)
+
+
+def test_http_not_found_error_shape(http_client) -> None:
+    client, headers = http_client
+    response = client.get("/api/v1/jobs/missing", headers=headers)
+
+    _assert_standard_error(response, 404, "NOT_FOUND", retryable=False)
+
+
+def test_http_method_not_allowed_error_shape(http_client) -> None:
+    client, headers = http_client
+    response = client.post("/api/v1/jobs/missing", headers=headers)
+
+    _assert_standard_error(response, 405, "METHOD_NOT_ALLOWED", retryable=False)
+
+
+def test_http_oversized_upload_error_shape(http_client, monkeypatch) -> None:
+    client, headers = http_client
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "8")
+    response = client.post(
+        "/api/v1/videos",
+        files={"file": ("too-large.mp4", b"x" * 32, "video/mp4")},
+        headers=headers,
+    )
+
+    _assert_standard_error(response, 413, "PAYLOAD_TOO_LARGE", retryable=False)
+
+
+def test_http_rate_limit_error_shape(http_client, monkeypatch) -> None:
+    client, headers = http_client
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "1")
+    client_ip = f"198.51.100.{uuid.uuid4().int % 250 + 1}"
+    request_headers = {**headers, "X-Forwarded-For": client_ip}
+
+    first = client.get("/api/v1/jobs/missing", headers=request_headers)
+    limited = client.get("/api/v1/jobs/missing", headers=request_headers)
+
+    _assert_standard_error(first, 404, "NOT_FOUND", retryable=False)
+    _assert_standard_error(limited, 429, "RATE_LIMITED", retryable=False)
+
+
+def test_http_validation_error_includes_field_details(http_client) -> None:
+    client, headers = http_client
+    response = client.post("/api/v1/sessions", json={}, headers=headers)
+
+    _assert_standard_error(response, 422, "VALIDATION_ERROR", retryable=False)
+    assert response.json()["error"]["details"]["field"] == "video_id"
+
+
+def test_http_internal_error_hides_traceback(api_app, monkeypatch) -> None:
+    app, headers = api_app
+
+    def fail_job_lookup(self, job_id):
+        raise RuntimeError(f"test-only failure for {job_id}")
+
+    monkeypatch.setattr(JobQueue, "get", fail_job_lookup)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/jobs/existing", headers=headers)
+
+    _assert_standard_error(response, 500, "INTERNAL_ERROR", retryable=True)
+    assert "Traceback" not in response.text
+    assert "test-only failure" not in response.text
 
 
 def test_concurrent_idempotent_instructions_have_one_effect(api_app) -> None:

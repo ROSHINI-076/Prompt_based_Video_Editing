@@ -40,6 +40,7 @@ ERRORS: dict[str, dict[str, Any]] = {
     "VALIDATION_ERROR": {"status": 422, "retryable": False},
     "NOT_FOUND": {"status": 404, "retryable": False},
     "UNAUTHORIZED": {"status": 401, "retryable": False},
+    "METHOD_NOT_ALLOWED": {"status": 405, "retryable": False},
     "PAYLOAD_TOO_LARGE": {"status": 413, "retryable": False},
     "RATE_LIMITED": {"status": 429, "retryable": False},
     "IDEMPOTENCY_KEY_REUSED": {"status": 409, "retryable": False},
