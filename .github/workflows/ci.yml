@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BUILDX_BAKE_ENTITLEMENTS_FS: "0"
+      TEST_MODE: "true"
+      AUTH_DISABLED: "true"
 
     services:
       postgres:
@@ -75,4 +77,5 @@ jobs:
           S3_SECRET_KEY: "minioadmin"
           S3_BUCKET: "incubrix"
           TEST_MODE: "true"
+          AUTH_DISABLED: "true"
         run: make test
