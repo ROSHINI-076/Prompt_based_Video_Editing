@@ -86,6 +86,45 @@ async def security_and_correlation_middleware(request: Request, call_next):
 
     settings = get_settings()
 
+    if request.url.path.startswith("/api/v1"):
+        if settings.AUTH_DISABLED and settings.TEST_MODE:
+            pass
+        else:
+            auth_header = request.headers.get("authorization", "")
+            if not auth_header:
+                response = JSONResponse(
+                    status_code=401,
+                    content=api_error(
+                        "UNAUTHORIZED", "Valid bearer token required.", status=401
+                    ).as_payload(),
+                )
+                response.headers["WWW-Authenticate"] = "Bearer"
+                response.headers["X-Correlation-Id"] = cid
+                return response
+
+            scheme, _, token = auth_header.partition(" ")
+            if scheme.lower() != "bearer" or not token:
+                response = JSONResponse(
+                    status_code=401,
+                    content=api_error(
+                        "UNAUTHORIZED", "Valid bearer token required.", status=401
+                    ).as_payload(),
+                )
+                response.headers["WWW-Authenticate"] = "Bearer"
+                response.headers["X-Correlation-Id"] = cid
+                return response
+
+            if not hmac.compare_digest(token, settings.API_TOKEN):
+                response = JSONResponse(
+                    status_code=401,
+                    content=api_error(
+                        "UNAUTHORIZED", "Valid bearer token required.", status=401
+                    ).as_payload(),
+                )
+                response.headers["WWW-Authenticate"] = "Bearer"
+                response.headers["X-Correlation-Id"] = cid
+                return response
+
     if settings.RATE_LIMIT_PER_MINUTE > 0:
         client_key = request.headers.get(
             "x-forwarded-for", request.client.host if request.client else "unknown"

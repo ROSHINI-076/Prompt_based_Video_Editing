@@ -216,6 +216,13 @@ and parser cache without compromising engine purity.
 - `run_migrations()` uses PostgreSQL advisory locks (`pg_advisory_lock`) to coordinate concurrent
   process startups (API and worker), and uses `Base.metadata.create_all` for in-memory SQLite.
 
+## D017: Phase 4B audit is a checkpoint, not a launch to 4C
+
+**Date:** 2026-10-18
+**Context:** The project has reached the Phase 4B queue/API checkpoint, but the remaining cross-cutting HTTP integration checks are intentionally still deferred.
+**Decision:** Keep the scope bounded to a verified Phase 4B audit. Items still marked Partial or Not done remain in the status tracker and are not treated as complete evidence until they have an HTTP test against real Postgres and MinIO. The project does not advance into 4C or Phase 5 until those checks exist and pass.
+**Rationale:** This preserves a clean “evidence before completion” workflow and prevents claiming route-level correctness without integration proof.
+
 ## D016: Content-addressed video storage and streaming source verification
 
 **Date:** 2026-10-18

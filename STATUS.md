@@ -115,7 +115,19 @@ Updated: 2026-10-18 (Phase 4B Job Queue)
 | Item | Status | Evidence |
 |------|--------|----------|
 | Postgres jobs table and Alembic migration | Done | `incubrix/db/models.py`; `incubrix/db/migrations/versions/48c62ca2a741_add_jobs_table.py` |
-| SKIP LOCKED claims, progress, retries, and stale-lease recovery | Done (queue state tests use SQLite) | `incubrix/jobs/queue.py`; `tests/unit/test_job_queue.py` |
-| Worker loop, heartbeats, signed callback delivery, reserved render handler | Partial (render intentionally returns NOT_IMPLEMENTED; intake integration pending) | `incubrix/jobs/worker.py`; `incubrix/jobs/handlers.py`; `tests/unit/test_job_worker.py` |
-| Idempotency, error registry, bearer auth/rate limit, and HTTP routes | Not done | Planned in subsequent Phase 4B steps |
-| SSRF-protected URL intake and HTTP end-to-end tests | Partial (worker URL validation/download implemented; API routes/tests pending) | `incubrix/jobs/handlers.py` |
+| SKIP LOCKED claims, progress, retries, and stale-lease recovery | Done (queue state tests use SQLite) | `incubrix/jobs/queue.py`; `tests/unit/test_job_queue.py::test_job_lifecycle_persists_claim_progress_and_result`; `tests/unit/test_job_queue.py::test_transient_failure_retries_then_exhausts_attempts`; `tests/unit/test_job_queue.py::test_stale_running_job_is_recovered` |
+| Worker loop, heartbeats, signed callback delivery, reserved render handler | Partial (render intentionally returns NOT_IMPLEMENTED; intake integration pending) | `incubrix/jobs/worker.py`; `tests/unit/test_job_worker.py::test_worker_runs_handler_and_persists_success`; `tests/unit/test_job_worker.py::test_worker_marks_unimplemented_render_as_failed`; `tests/unit/test_job_worker.py::test_callback_signature_is_hmac_of_exact_json_body` |
+| Intake/transcribe handler: content-addressed storage, SHA-256, ffprobe, VFR/no-audio warnings, STT adapter | Partial | `incubrix/jobs/handlers.py`; `tests/unit/test_job_worker.py::test_video_probe_parses_metadata`; no end-to-end HTTP test yet |
+| `callback_url` with HMAC-SHA256 `X-IncuBrix-Signature`, retries, and callback failure not failing job | Partial | `incubrix/jobs/worker.py`; `tests/unit/test_job_worker.py::test_callback_signature_is_hmac_of_exact_json_body`; `tests/unit/test_job_worker.py::test_callback_failure_does_not_change_successful_job` |
+| Idempotency-Key on every POST (replay + 409 reuse + concurrent identical requests) | Partial | `incubrix/api/idempotency.py`; no integration test covering same-key/same-body, same-key/different-body, or two concurrent identical requests |
+| Error registry and global handler: standard error envelope for validation, 401, 404, 405, 413, 429, 500 and dependency failures; `SESSION_CONFLICT` (409, retryable) | Partial | `incubrix/api/errors.py`; `incubrix/api/app.py`; no HTTP integration tests for each error class |
+| Bearer auth, rate limit, upload size limit, URL intake (https, `file://` in `TEST_MODE`, redirects, timeout, size limit, SSRF) | Partial | `incubrix/api/app.py`; `incubrix/jobs/handlers.py::_validate_public_https_url`; `tests/unit/test_job_worker.py::test_url_ssrf_rejects_private_dns_resolution`; no HTTP SSRF integration tests |
+| Routes: `POST /videos`, `GET /videos/{id}`, `GET /videos/{id}/transcript`, `POST /sessions`, `GET /sessions/{id}`, `POST /sessions/{id}/instructions`, `GET /sessions/{id}/timeline`, `GET /sessions/{id}/history`, `POST /sessions/{id}/render`, `GET /jobs/{id}`, `GET /health`, `GET /ready` | Partial | `incubrix/api/app.py`; `tests/test_smoke.py` covers health/ready bootstrap paths, but not the full route matrix against Postgres/MinIO |
+| JSON logs with `timestamp`, `level`, `job_id`, and `correlation_id` (generated when missing, echoed in response) | Partial | `incubrix/api/app.py`; `tests/test_smoke.py` exercises correlation IDs; no full integration log contract test |
+| Every setting in `.env.example` and config, no hard-coded values | Done | `.env.example`; `incubrix/config.py`; `tests/test_smoke.py::test_settings_load` |
+
+### 4B status summary
+
+- The queue and worker primitives are implemented and unit-tested.
+- The API layer and route protection are present but not yet fully proven against every HTTP path and failure mode.
+- The remaining Phase 4B items are intentionally deferred beyond this status audit and must be validated with real Postgres + MinIO integration tests before 4C or Phase 5 begins.
