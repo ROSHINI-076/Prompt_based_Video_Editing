@@ -7,6 +7,7 @@ down:
 	docker compose down
 
 test: lint
+	@which docker >/dev/null 2>&1 && docker compose up -d postgres minio minio-init 2>/dev/null || true
 	python -m pytest tests/ -v --tb=short
 
 lint:

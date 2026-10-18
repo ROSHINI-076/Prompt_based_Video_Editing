@@ -175,3 +175,34 @@ current repository has not implemented the renderer or render job.
 explicit warning that no video was rendered. It does not claim a render succeeded.
 **Rationale:** This permits the complete parser-to-engine conversation to be exercised without
 misrepresenting deferred Phase 5 behavior.
+
+## D015: Database persistence, pure mapping, and optimistic concurrency
+
+**Date:** 2026-10-18
+**Context:** Phase 4A adds persistent database storage for videos, transcripts, sessions, edits,
+and parser cache without compromising engine purity.
+**Decision:**
+- SQLAlchemy 2 declarative models reside in `incubrix/db/models.py`.
+- `incubrix/db/mapping.py` handles bidirectional translation between database rows and engine models.
+  The engine itself has zero imports from `incubrix/db`.
+- All identifiers (edit IDs, overlay IDs, word IDs, effect IDs) round-trip exactly.
+- `SessionRepository.save_session` executes in ONE transaction with atomic version checking
+  (`sessions.version`). Stale version updates raise `ConcurrencyError`, preventing interleaving.
+- Replayed session reconstruction guarantees `loaded.manager.get_timeline_hash() == hash_before`.
+- `run_migrations()` uses PostgreSQL advisory locks (`pg_advisory_lock`) to coordinate concurrent
+  process startups (API and worker), and uses `Base.metadata.create_all` for in-memory SQLite.
+
+## D016: Content-addressed video storage and streaming source verification
+
+**Date:** 2026-10-18
+**Context:** Must-have 1 requires that the original source video is never damaged or overwritten,
+with a verification mechanism to re-hash the source after a session.
+**Decision:**
+- Source videos are stored under a content-addressed S3 key: `sources/{sha256}.mp4`.
+- If a source object already exists under its SHA-256 key, it is never overwritten (`exists()` check).
+- `compute_file_sha256` and `verify_source` stream data in 64KB chunks; full video files are never
+  loaded into memory.
+- `verify_source` re-downloads/streams the stored object, computes its SHA-256, and compares it to
+  the recorded intake SHA-256. Any tampering or corruption returns an invalid result and raises
+  `SourceIntegrityError`.
+

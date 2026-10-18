@@ -6,14 +6,14 @@ Updated: 2026-10-18 (Phase 3 Adapters and Instruction Pipeline)
 
 | # | Must-have | Status | Evidence |
 |---|-----------|--------|----------|
-| 1 | Never damage the original | Not done | Scheduled for Phase 4 (intake SHA-256) |
+| 1 | Never damage the original | Done (storage & hash verification) | `incubrix/adapters/storage/s3.py`; `tests/integration/test_data_layer.py` |
 | 2 | Edits stick to content (word IDs) | Done (engine scope) | `incubrix/engine/models.py`; `tests/unit/test_phase3_adapters.py` |
 | 3 | Three-way answers | Done (engine scope) | `incubrix/engine/answers.py`; `tests/test_scenarios.py`; Phase 3 pipeline tests |
 | 4 | Predictable / deterministic | Done (mock instruction path) | `incubrix/engine/hashing.py`; `tests/unit/test_phase3_adapters.py` (three-run hashes) |
 | 5 | Render matches timeline | Not done | Scheduled for Phase 5 (renderer & verifier) |
 | 6 | Undo/redo/restore | Done (engine scope) | `incubrix/engine/session.py`; `tests/scenarios/worked_example.yaml`; Phase 3 pipeline test |
 | 7 | One stated time policy | Done (engine scope) | `incubrix/engine/answers.py`; `tests/scenarios/worked_example.yaml` |
-| 8 | Integration Standard + runners + demo | Partial | Phase 0 scaffold & tooling verified |
+| 8 | Integration Standard + runners + demo | Partial | Phase 0 scaffold, tooling & Phase 4A data layer verified |
 
 ## Integration Standard (10 points)
 
@@ -25,7 +25,7 @@ Updated: 2026-10-18 (Phase 3 Adapters and Instruction Pipeline)
 | 4 | Safe retries (Idempotency-Key) | Not done | Scheduled for Phase 4 |
 | 5 | Clear errors | Partial | Standard error JSON in global exception handler |
 | 6 | Configuration | Done | `incubrix/config.py` (pydantic-settings), `.env.example` |
-| 7 | Files in/out | Not done | Scheduled for Phase 4 |
+| 7 | Files in/out | Partial | S3 adapter, streaming content-addressed upload, verify_source, presigned URLs (`incubrix/adapters/storage/s3.py`) |
 | 8 | Logs & health | Done | `/health` (200), `/ready` (200), structlog with `X-Correlation-Id` |
 | 9 | Output manifest | Not done | Scheduled for Phase 4 / 5 |
 | 10 | Batch runner | Not done | Scheduled for Phase 6 |
@@ -92,4 +92,20 @@ Updated: 2026-10-18 (Phase 3 Adapters and Instruction Pipeline)
 | Compact-context parse cache and pipeline; pending clarification bypasses parser | Done (memory cache only) | `incubrix/adapters/llm/cache.py`; `incubrix/pipeline/instructions.py`; worked-example test |
 | Eight-step worked example through natural language | Partial (render step recognized, no media is rendered) | `tests/unit/test_phase3_adapters.py`; warning is asserted |
 | API-key non-disclosure and engine dependency boundary | Done | `tests/unit/test_phase3_adapters.py` |
-| Postgres parse cache, real provider/model verification and render output | Not done | Deferred to Phases 4–5 |
+| Postgres parse cache, real provider/model verification and render output | Partial (Postgres parse cache complete) | `incubrix/db/parse_cache.py`; `tests/integration/test_data_layer.py` |
+
+## Phase 4A: Data layer (Postgres, SQLAlchemy 2, Alembic, S3 Storage)
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Honest cost defaults (mock/local = 0, env prices for hosted) | Done | `incubrix/config.py`; `incubrix/pipeline/cost.py`; `tests/unit/test_cost.py` |
+| Database schema & Alembic migrations (videos, transcripts, sessions, edits, redo_edits, pending_questions, parse_cache) | Done | `incubrix/db/models.py`; `incubrix/db/migrations/`; `tests/integration/test_data_layer.py` |
+| Safe concurrent migrations via PostgreSQL advisory lock | Done | `incubrix/db/engine.py`; `tests/integration/test_data_layer.py` |
+| Pure engine mapping and exact identifier round-trip | Done | `incubrix/db/mapping.py`; `tests/unit/test_db_mapping.py` |
+| Session repository with optimistic concurrency control (`sessions.version`) | Done | `incubrix/db/repository.py`; `tests/unit/test_repository.py`; `tests/integration/test_data_layer.py` |
+| Session load rebuilds timeline deterministically (`hash_after == hash_before`) | Done | `tests/unit/test_repository.py`; `tests/integration/test_data_layer.py` |
+| Postgres parse cache implementing `ParseCache` protocol | Done | `incubrix/db/parse_cache.py`; `tests/integration/test_data_layer.py` |
+| S3-compatible storage adapter (streaming upload/download, idempotent bucket, presigned URLs) | Done | `incubrix/adapters/storage/s3.py`; `tests/unit/test_storage.py` |
+| Content-addressed source storage under sha256 (never overwritten) & streaming `verify_source` | Done | `incubrix/adapters/storage/s3.py`; `tests/integration/test_data_layer.py` |
+| Integration tests against real Postgres and MinIO containers | Done | `tests/integration/test_data_layer.py` (6 integration tests passed) |
+| CI workflow updated with Postgres & MinIO service containers; `scripts/test.ps1` and `Makefile` test target | Done | `.github/workflows/ci.yml`; `Makefile`; `scripts/test.ps1` |
