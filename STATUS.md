@@ -22,8 +22,8 @@ Updated: 2026-10-18 (Phase 4B Job Queue)
 | 1 | One-command start/test | Done | `docker-compose.yml` (all 4+1 containers healthy), `Makefile`, `tests/test_smoke.py` |
 | 2 | OpenAPI 3.1 | Done | `openapi.yaml` generated from FastAPI app (OpenAPI 3.1.0) |
 | 3 | Background jobs | Partial | `incubrix/jobs/queue.py`, `incubrix/jobs/worker.py`, `incubrix/jobs/handlers.py`; HTTP job creation/routes still pending |
-| 4 | Safe retries (Idempotency-Key) | Not done | Scheduled for Phase 4 |
-| 5 | Clear errors | Partial | Standard error JSON in global exception handler |
+| 4 | Safe retries (Idempotency-Key) | Done | `incubrix/api/idempotency.py` with key reservation/replay and 409 on reuse |
+| 5 | Clear errors | Done | Standard error JSON in `incubrix/api/errors.py` and `incubrix/api/app.py` |
 | 6 | Configuration | Done | `incubrix/config.py` (pydantic-settings), `.env.example` |
 | 7 | Files in/out | Partial | S3 adapter, streaming content-addressed upload, verify_source, presigned URLs (`incubrix/adapters/storage/s3.py`) |
 | 8 | Logs & health | Done | `/health` (200), `/ready` (200), structlog with `X-Correlation-Id` |

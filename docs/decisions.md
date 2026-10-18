@@ -126,6 +126,18 @@ database connection.
 **Rationale:** Postgres remains the sole queue and job state survives process restarts. `available_at`
 is an additional scheduling field required to represent backoff durably.
 
+## D012: HTTP API uses a standard error envelope and middleware protections
+
+**Date:** 2026-10-18
+**Context:** The API layer must give predictable error payloads and protect the demo from abuse.
+**Decision:** All API responses use a common `{"error": {"code", "message", "retryable", "details"}}`
+shape, with route-specific 200/202 success responses remaining untouched. HTTP auth is enforced by a
+Bearer-token middleware on every route except `/health` and `/ready`, and a per-token rate limiter is
+kept in memory. Idempotency-Key replay is applied at the ASGI boundary so repeated POSTs return the
+stored response or a `IDEMPOTENCY_KEY_REUSED` 409 for a reused key with a different body.
+**Rationale:** This matches the brief’s policy without changing engine semantics: the worker, queue, and
+engine remain detached from the HTTP layer while the API improves safety and consistency.
+
 ## D010: Source-anchored silence protection and music intent
 
 **Date:** 2026-10-17

@@ -268,6 +268,24 @@ class JobRecord(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class IdempotencyRecord(Base):
+    """Stored response for a POST request protected by an Idempotency-Key."""
+
+    __tablename__ = "idempotency_keys"
+
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    route: Mapped[str] = mapped_column(String(512), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    response_status: Mapped[int | None] = mapped_column(Integer)
+    response_body: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+
 class ParseCacheRecord(Base):
     """Cached parsed operations for deterministic LLM translation."""
 

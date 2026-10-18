@@ -15,3 +15,23 @@
 | `NOTHING_TO_UNDO` | There is no edit available to undo. |
 | `OUT_OF_RANGE` | A requested start or destination is beyond the video. |
 | `UNSUPPORTED_OPERATION` | The instruction names an operation the engine does not support. |
+
+# API error codes
+
+| Code | Meaning |
+|---|---|
+| `VALIDATION_ERROR` | Request body or params failed validation. |
+| `NOT_FOUND` | A requested resource, video, transcript, job or session does not exist. |
+| `UNAUTHORIZED` | A valid bearer token was not supplied. |
+| `PAYLOAD_TOO_LARGE` | The upload or request body exceeded the configured limit. |
+| `RATE_LIMITED` | The request was rejected by the per-token rate limiter. |
+| `IDEMPOTENCY_KEY_REUSED` | The same Idempotency-Key was used with a different request body. |
+| `SESSION_CONFLICT` | A session update conflicted with a stale optimistic version. |
+| `DATABASE_UNAVAILABLE` | Postgres or another required DB dependency was unavailable. |
+| `STORAGE_UNAVAILABLE` | MinIO/S3 or source storage was unavailable. |
+| `LLM_UNAVAILABLE` | The configured LLM adapter was unavailable or failed to respond. |
+| `INTERNAL_ERROR` | Unhandled server-side failure or dependency error before a specific code was available. |
+| `NOT_IMPLEMENTED` | A job or route is intentionally deferred for a later phase. |
+| `INVALID_URL` | URL intake was not allowed or could not be resolved safely. |
+| `INVALID_MEDIA` | The provided media file was missing or malformed. |
+| `VIDEO_NOT_FOUND` | A referenced file or media item was missing. |
