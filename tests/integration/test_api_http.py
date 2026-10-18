@@ -7,12 +7,14 @@ import hmac
 import json
 import os
 import socket
+import subprocess
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,7 +22,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
 
-from incubrix.adapters.storage.s3 import S3Storage
+from incubrix.adapters.storage.s3 import S3Storage, compute_file_sha256
 from incubrix.config import Settings, get_settings
 from incubrix.db.engine import get_engine, get_session_factory, run_migrations
 from incubrix.db.mapping import source_info_to_video_kwargs, transcript_to_record_kwargs
@@ -222,6 +224,50 @@ def _create_callback_job(
     )
     assert response.status_code == 202, response.text
     return response.json()["job_id"]
+
+
+def _generate_tiny_video(destination: Path) -> None:
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=16x16:r=30:d=300",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=48000",
+            "-t",
+            "300",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "40",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "8k",
+            str(destination),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def _assert_caption_time(timeline: dict[str, Any], start_s: float, end_s: float) -> None:
+    caption = next(item for item in timeline["overlay_displays"] if item["text"] == "Welcome!")
+    assert caption["start_s"] == pytest.approx(start_s, abs=0.1)
+    assert caption["end_s"] == pytest.approx(end_s, abs=0.1)
 
 
 def test_instruction_idempotency_replays_response_and_applies_once(http_client) -> None:
@@ -520,6 +566,136 @@ def test_http_internal_error_hides_traceback(api_app, monkeypatch) -> None:
     _assert_standard_error(response, 500, "INTERNAL_ERROR", retryable=True)
     assert "Traceback" not in response.text
     assert "test-only failure" not in response.text
+
+
+def test_http_upload_intake_and_eight_step_worked_example(
+    tmp_path, http_client, monkeypatch
+) -> None:
+    client, headers = http_client
+    monkeypatch.setenv("STT_PROVIDER", "mock")
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
+    monkeypatch.setenv("EMBEDDER_PROVIDER", "mock")
+
+    from tests.unit.conftest import transcript as synthetic_transcript_fixture
+
+    transcript = synthetic_transcript_fixture.__wrapped__()
+    transcript_path = tmp_path / "worked-example-transcript.json"
+    transcript_path.write_text(json.dumps(transcript.model_dump(mode="json")), encoding="utf-8")
+    monkeypatch.setenv("STT_MOCK_TRANSCRIPT_PATH", str(transcript_path))
+
+    source_path = tmp_path / "worked-example.mp4"
+    _generate_tiny_video(source_path)
+    original_sha256 = compute_file_sha256(source_path)
+    _pause_enqueued_jobs(monkeypatch)
+
+    uploaded = client.post(
+        "/api/v1/videos",
+        files={"file": (source_path.name, source_path.read_bytes(), "video/mp4")},
+        headers=headers,
+    )
+    assert uploaded.status_code == 202, uploaded.text
+    intake_job_id = uploaded.json()["job_id"]
+    with get_session_factory()() as db:
+        intake_job = db.get(JobRecord, intake_job_id)
+        upload_temp_path = Path(intake_job.payload["local_path"])
+
+    settings = Settings()
+    from incubrix.jobs.handlers import build_handlers
+
+    try:
+        _run_specific_job(intake_job_id, settings, build_handlers(settings))
+        intake_job = _get_job(client, headers, intake_job_id)
+        assert intake_job["status"] == "succeeded", intake_job
+        video_id = intake_job["result"]["video_id"]
+
+        video_response = client.get(f"/api/v1/videos/{video_id}", headers=headers)
+        transcript_response = client.get(f"/api/v1/videos/{video_id}/transcript", headers=headers)
+        assert video_response.status_code == 200, video_response.text
+        assert transcript_response.status_code == 200, transcript_response.text
+        assert video_response.json()["sha256"] == original_sha256
+        assert any(
+            word["text"].casefold() == "welcome"
+            for word in transcript_response.json()["transcript"]["words"]
+        )
+
+        source_verification = S3Storage(settings).verify_source(video_response.json())
+        assert source_verification.is_valid is True
+        assert source_verification.computed_sha256 == original_sha256
+        assert compute_file_sha256(source_path) == original_sha256
+
+        created = client.post("/api/v1/sessions", json={"video_id": video_id}, headers=headers)
+        assert created.status_code == 200, created.text
+        session_id = created.json()["session_id"]
+        instruction_url = f"/api/v1/sessions/{session_id}/instructions"
+
+        def say(instruction: str) -> dict[str, Any]:
+            response = client.post(
+                instruction_url,
+                json={"say": instruction},
+                headers=headers,
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        def read_timeline() -> dict[str, Any]:
+            response = client.get(f"/api/v1/sessions/{session_id}/timeline", headers=headers)
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        step_1 = say("Add a caption 'Welcome!' when I say welcome to the channel")
+        assert step_1["status"] == "applied"
+        _assert_caption_time(read_timeline(), 42.0, 43.9)
+
+        step_2 = say("Cut the first 30 seconds")
+        assert step_2["duration_s"] == pytest.approx(270.0, abs=0.1)
+        _assert_caption_time(read_timeline(), 12.0, 13.9)
+
+        clarification = say("Remove the part about pricing")
+        assert clarification["status"] == "needs_clarification"
+        assert "3" in clarification["question"]
+        assert any("all" in str(option).casefold() for option in clarification["options"])
+        answered = client.post(
+            instruction_url,
+            json={"answer": "the second one"},
+            headers=headers,
+        )
+        assert answered.status_code == 200, answered.text
+        step_3 = answered.json()
+        assert step_3["status"] == "applied"
+        assert step_3["duration_s"] == pytest.approx(265.0, abs=0.2)
+
+        step_4 = say("Speed up from 1:00 to 1:30 by 2x")
+        assert step_4["duration_s"] == pytest.approx(250.0, abs=0.2)
+
+        step_5 = say("Actually, put the intro back")
+        assert step_5["duration_s"] == pytest.approx(280.0, abs=0.2)
+        _assert_caption_time(read_timeline(), 42.0, 43.9)
+
+        step_6 = say("Undo")
+        assert step_6["duration_s"] == pytest.approx(250.0, abs=0.2)
+        _assert_caption_time(read_timeline(), 12.0, 13.9)
+
+        step_7 = say("Make that caption red")
+        assert step_7["status"] == "applied"
+        step_8 = say("Render")
+        assert step_8["status"] == "applied"
+        assert any("no video was rendered" in warning.casefold() for warning in step_8["warnings"])
+
+        final_timeline = read_timeline()
+        _assert_caption_time(final_timeline, 12.0, 13.9)
+        assert next(
+            overlay for overlay in final_timeline["overlays"] if overlay["text"] == "Welcome!"
+        )["style"] == {"color": "red"}
+        final_session = client.get(f"/api/v1/sessions/{session_id}", headers=headers)
+        history = client.get(f"/api/v1/sessions/{session_id}/history", headers=headers)
+        assert final_session.status_code == 200, final_session.text
+        assert final_session.json()["duration_s"] == pytest.approx(250.0, abs=0.1)
+        assert history.status_code == 200, history.text
+        assert len(history.json()["stack"]) == 5
+        assert history.json()["redo"] == []
+        assert compute_file_sha256(source_path) == original_sha256
+    finally:
+        upload_temp_path.unlink(missing_ok=True)
 
 
 def test_concurrent_idempotent_instructions_have_one_effect(api_app) -> None:
