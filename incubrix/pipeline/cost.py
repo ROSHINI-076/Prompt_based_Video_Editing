@@ -1,4 +1,9 @@
-"""Small provider-usage cost estimator."""
+"""Small provider-usage cost estimator.
+
+Cost is reported per provider: local/mock providers always have 0 API cost;
+hosted providers use prices from env variables (STT_COST_PER_MINUTE,
+LLM_INPUT_COST_PER_1K_TOKENS etc.).
+"""
 
 from __future__ import annotations
 
@@ -20,3 +25,20 @@ def estimate_llm_cost(usage: Usage, settings: Settings | None = None) -> float:
         + usage.output_tokens * config.LLM_OUTPUT_COST_PER_1K_TOKENS / 1000,
         8,
     )
+
+
+def estimate_stt_cost(
+    duration_minutes: float,
+    provider: str,
+    settings: Settings | None = None,
+) -> float:
+    """Estimate STT cost based on audio duration and provider.
+
+    Local providers (mock, faster_whisper) always report 0 API cost.
+    Hosted providers use the STT_COST_PER_MINUTE from env.
+    """
+    # Local / free providers always cost 0 regardless of env setting
+    if provider in ("mock", "faster_whisper"):
+        return 0.0
+    config = settings or get_settings()
+    return round(duration_minutes * config.STT_COST_PER_MINUTE, 8)

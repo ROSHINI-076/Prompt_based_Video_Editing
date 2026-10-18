@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "json"  # json | console
 
     # ── Cost estimation (price per unit from env) ───────────────────
-    STT_COST_PER_MINUTE: float = 0.006
+    STT_COST_PER_MINUTE: float = 0.0
     LLM_COST_PER_1K_TOKENS: float = 0.0
     LLM_INPUT_COST_PER_1K_TOKENS: float = 0.0
     LLM_OUTPUT_COST_PER_1K_TOKENS: float = 0.0
