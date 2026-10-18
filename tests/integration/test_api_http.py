@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import json
 import os
 import socket
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import pytest
@@ -177,6 +181,45 @@ def _get_job(client: TestClient, headers: dict[str, str], job_id: str) -> dict[s
     response = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@contextmanager
+def _callback_endpoint(status_code: int):
+    received: list[tuple[bytes, str | None]] = []
+
+    class CallbackHandler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = self.rfile.read(int(self.headers.get("content-length", "0")))
+            received.append((body, self.headers.get("X-IncuBrix-Signature")))
+            self.send_response(status_code)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: Any) -> None:
+            del format, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), CallbackHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/callback", received
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def _create_callback_job(
+    client: TestClient,
+    headers: dict[str, str],
+    callback_url: str,
+) -> str:
+    response = client.post(
+        "/api/v1/videos",
+        json={"url": "https://callback-job.invalid/video.mp4", "callback_url": callback_url},
+        headers=headers,
+    )
+    assert response.status_code == 202, response.text
+    return response.json()["job_id"]
 
 
 def test_instruction_idempotency_replays_response_and_applies_once(http_client) -> None:
@@ -356,6 +399,56 @@ def test_video_intake_rejects_redirect_to_link_local_before_fetching_redirect(
     assert job["error"]["code"] == "INVALID_URL"
     assert set(job["error"]) == {"code", "message", "retryable", "details"}
     assert transport_requests == [source_url]
+
+
+def test_http_callback_signature_matches_exact_raw_body(http_client, monkeypatch) -> None:
+    client, headers = http_client
+    secret = "http-callback-signing-secret"
+    monkeypatch.setenv("CALLBACK_HMAC_SECRET", secret)
+    _pause_enqueued_jobs(monkeypatch)
+
+    with _callback_endpoint(204) as (callback_url, received):
+        job_id = _create_callback_job(client, headers, callback_url)
+        settings = Settings()
+        _run_specific_job(
+            job_id,
+            settings,
+            {"intake_and_transcribe": lambda payload, progress: {"ok": True}},
+        )
+
+    job = _get_job(client, headers, job_id)
+    assert job["status"] == "succeeded"
+    assert len(received) == 1
+    raw_body, signature = received[0]
+    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    assert hmac.compare_digest(signature or "", expected)
+    assert json.loads(raw_body)["job_id"] == job_id
+
+
+def test_http_callback_failures_retry_log_and_do_not_fail_job(
+    http_client, monkeypatch, caplog
+) -> None:
+    client, headers = http_client
+    monkeypatch.setenv("CALLBACK_HMAC_SECRET", "http-callback-failure-secret")
+    monkeypatch.setenv("CALLBACK_MAX_RETRIES", "2")
+    monkeypatch.setenv("CALLBACK_BACKOFF_S", "0")
+    _pause_enqueued_jobs(monkeypatch)
+    caplog.set_level("WARNING", logger="incubrix.jobs.worker")
+
+    with _callback_endpoint(503) as (callback_url, received):
+        job_id = _create_callback_job(client, headers, callback_url)
+        settings = Settings()
+        _run_specific_job(
+            job_id,
+            settings,
+            {"intake_and_transcribe": lambda payload, progress: {"ok": True}},
+        )
+
+    job = _get_job(client, headers, job_id)
+    assert job["status"] == "succeeded"
+    assert job["error"] is None
+    assert len(received) == 2
+    assert sum("job_callback_failed" in record.getMessage() for record in caplog.records) == 2
 
 
 def test_concurrent_idempotent_instructions_have_one_effect(api_app) -> None:

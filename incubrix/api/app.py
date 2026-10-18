@@ -252,9 +252,13 @@ async def create_video(request: Request) -> JSONResponse:
     """Queue an intake/transcription job from a multipart upload or public URL."""
     settings = get_settings()
     payload: dict[str, Any] = {}
+    callback_url: str | None = None
     content_type = request.headers.get("content-type", "").split(";", maxsplit=1)[0].lower()
     if content_type in {"multipart/form-data", "application/x-www-form-urlencoded"}:
         form = await request.form()
+        callback_value = form.get("callback_url")
+        if callback_value is not None:
+            callback_url = str(callback_value)
         uploaded = form.get("file")
         if uploaded is not None:
             content = await uploaded.read()
@@ -289,6 +293,13 @@ async def create_video(request: Request) -> JSONResponse:
                 details={"error": str(exc)},
             ) from exc
 
+    if not isinstance(payload, dict):
+        raise api_error("VALIDATION_ERROR", "Request body must be a JSON object.", status=422)
+    if "callback_url" in payload:
+        callback_url = payload.pop("callback_url")
+    if callback_url is not None and (not isinstance(callback_url, str) or not callback_url.strip()):
+        raise api_error("VALIDATION_ERROR", "callback_url must be a non-empty string.", status=422)
+
     if not payload:
         raise api_error("VALIDATION_ERROR", "Either a file upload or URL is required.", status=422)
     if "url" in payload and not payload.get("url"):
@@ -297,7 +308,7 @@ async def create_video(request: Request) -> JSONResponse:
     queue = JobQueue(
         max_attempts=settings.JOB_MAX_ATTEMPTS, heartbeat_stale_s=settings.JOB_HEARTBEAT_STALE_S
     )
-    job = queue.enqueue("intake_and_transcribe", payload)
+    job = queue.enqueue("intake_and_transcribe", payload, callback_url=callback_url)
     return JSONResponse(status_code=202, content={"job_id": job.id})
 
 
