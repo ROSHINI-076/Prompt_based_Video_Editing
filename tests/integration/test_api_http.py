@@ -8,6 +8,7 @@ import socket
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -22,6 +23,8 @@ from incubrix.db.mapping import source_info_to_video_kwargs, transcript_to_recor
 from incubrix.db.models import EditRecord, JobRecord, TranscriptRecord, VideoRecord
 from incubrix.db.repository import SessionRepository
 from incubrix.engine.models import Sentence, SourceInfo, Transcript, Word
+from incubrix.jobs.queue import JobQueue, utc_now
+from incubrix.jobs.worker import Worker
 
 pytestmark = pytest.mark.integration
 
@@ -110,6 +113,72 @@ def _closed_local_port() -> int:
         return listener.getsockname()[1]
 
 
+class _SpecificJobQueue(JobQueue):
+    """Claim only the job under test, leaving shared integration jobs alone."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__()
+        self.job_id = job_id
+
+    def claim(self, worker_id: str, now=None):
+        current = now or utc_now()
+        with self._sessions.begin() as session:
+            job = session.execute(
+                select(JobRecord)
+                .where(JobRecord.id == self.job_id, JobRecord.status == "queued")
+                .with_for_update(skip_locked=True)
+            ).scalar_one_or_none()
+            if job is None:
+                return None
+            job.status = "running"
+            job.attempts += 1
+            job.locked_by = worker_id
+            job.heartbeat_at = current
+            job.started_at = job.started_at or current
+            session.flush()
+            session.expunge(job)
+            return job
+
+
+def _pause_enqueued_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the Compose worker from racing this test's explicitly-run worker."""
+
+    def enqueue_paused(queue, job_type, payload, callback_url=None):
+        current = utc_now()
+        record = JobRecord(
+            id=str(uuid.uuid4()),
+            type=job_type,
+            payload=payload,
+            callback_url=callback_url,
+            max_attempts=queue._max_attempts,
+            available_at=current + timedelta(hours=1),
+            created_at=current,
+        )
+        with queue._sessions.begin() as session:
+            session.add(record)
+            session.flush()
+            session.expunge(record)
+        return record
+
+    monkeypatch.setattr(JobQueue, "enqueue", enqueue_paused)
+
+
+def _run_specific_job(job_id: str, settings: Settings, handlers: dict[str, Any]) -> None:
+    worker = Worker(
+        settings=settings,
+        queue=_SpecificJobQueue(job_id),
+        handlers=handlers,
+        worker_id=f"http-test-{uuid.uuid4().hex[:8]}",
+    )
+    assert worker.run_once() is True
+
+
+def _get_job(client: TestClient, headers: dict[str, str], job_id: str) -> dict[str, Any]:
+    response = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def test_instruction_idempotency_replays_response_and_applies_once(http_client) -> None:
     client, headers = http_client
     session_id = _create_session(client, headers)
@@ -173,6 +242,120 @@ def test_video_intake_idempotency_returns_same_job_without_repeating_work(http_c
         )
     assert job_count == 1
     assert replay.json()["job_id"] == job_id
+
+
+@pytest.mark.parametrize(
+    ("url", "resolved_address"),
+    [
+        ("https://10.23.4.5/video.mp4", "10.23.4.5"),
+        ("https://127.0.0.1/video.mp4", "127.0.0.1"),
+        ("https://169.254.10.20/video.mp4", "169.254.10.20"),
+        ("http://public-url.test/video.mp4", "93.184.216.34"),
+    ],
+    ids=["private-ip", "loopback", "link-local", "non-https"],
+)
+def test_video_intake_rejects_unsafe_urls_without_outbound_requests(
+    http_client, monkeypatch: pytest.MonkeyPatch, url: str, resolved_address: str
+) -> None:
+    client, headers = http_client
+    _pause_enqueued_jobs(monkeypatch)
+    outbound_requests: list[str] = []
+    resolver_calls: list[tuple[str, int]] = []
+
+    def fake_resolver(host, port, *args, **kwargs):
+        resolver_calls.append((host, port))
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (resolved_address, port))
+        ]
+
+    class NoRequestClient:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def stream(self, method: str, requested_url: str):
+            outbound_requests.append(requested_url)
+            raise AssertionError("unsafe intake attempted an HTTP request")
+
+    monkeypatch.setattr("incubrix.jobs.handlers.socket.getaddrinfo", fake_resolver)
+    monkeypatch.setattr("incubrix.jobs.handlers.httpx.Client", NoRequestClient)
+
+    submitted = client.post("/api/v1/videos", json={"url": url}, headers=headers)
+    assert submitted.status_code == 202, submitted.text
+    job_id = submitted.json()["job_id"]
+
+    from incubrix.jobs.handlers import build_handlers
+
+    settings = Settings()
+    _run_specific_job(job_id, settings, build_handlers(settings))
+    job = _get_job(client, headers, job_id)
+
+    assert job["status"] == "failed", (job, resolver_calls)
+    assert job["error"]["code"] == "INVALID_URL"
+    assert job["error"]["retryable"] is False
+    assert set(job["error"]) == {"code", "message", "retryable", "details"}
+    assert outbound_requests == []
+
+
+def test_video_intake_rejects_redirect_to_link_local_before_fetching_redirect(
+    http_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, headers = http_client
+    _pause_enqueued_jobs(monkeypatch)
+    source_url = "https://public-redirect.test/video.mp4"
+    redirect_url = "https://169.254.169.254/latest/meta-data"
+    transport_requests: list[str] = []
+
+    def fake_resolver(host, port, *args, **kwargs):
+        address = "93.184.216.34" if host == "public-redirect.test" else "169.254.169.254"
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, port))]
+
+    class RedirectResponse:
+        status_code = 302
+        headers = {"location": redirect_url}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def stream(self, method: str, url: str):
+            assert method == "GET"
+            transport_requests.append(url)
+            return RedirectResponse()
+
+    monkeypatch.setattr("incubrix.jobs.handlers.socket.getaddrinfo", fake_resolver)
+    monkeypatch.setattr("incubrix.jobs.handlers.httpx.Client", FakeClient)
+    submitted = client.post("/api/v1/videos", json={"url": source_url}, headers=headers)
+    assert submitted.status_code == 202, submitted.text
+    job_id = submitted.json()["job_id"]
+
+    from incubrix.jobs.handlers import build_handlers
+
+    settings = Settings()
+    _run_specific_job(job_id, settings, build_handlers(settings))
+    job = _get_job(client, headers, job_id)
+
+    assert job["status"] == "failed"
+    assert job["error"]["code"] == "INVALID_URL"
+    assert set(job["error"]) == {"code", "message", "retryable", "details"}
+    assert transport_requests == [source_url]
 
 
 def test_concurrent_idempotent_instructions_have_one_effect(api_app) -> None:
