@@ -13,14 +13,26 @@ from incubrix.db.models import (
     TranscriptRecord,
     VideoRecord,
 )
+from incubrix.db.parse_cache import PostgresParseCache
+from incubrix.db.repository import (
+    ConcurrencyError,
+    LoadedSession,
+    SessionNotFoundError,
+    SessionRepository,
+)
 
 __all__ = [
     "Base",
+    "ConcurrencyError",
     "EditRecord",
+    "LoadedSession",
     "ParseCacheRecord",
     "PendingQuestionRecord",
+    "PostgresParseCache",
     "RedoEditRecord",
+    "SessionNotFoundError",
     "SessionRecord",
+    "SessionRepository",
     "TranscriptRecord",
     "VideoRecord",
     "get_db_session",
