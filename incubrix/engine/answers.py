@@ -12,7 +12,7 @@ import json
 import math
 import re
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from incubrix.engine.hashing import timeline_hash
@@ -1194,6 +1194,7 @@ def handle_instruction(
     *,
     instruction: str = "",
     _confirmed_repeat: bool = False,
+    embedder: Callable[[str, str], float] | None = None,
 ) -> dict:
     """Resolve and apply one structured instruction as exactly one Edit.
 
@@ -1278,6 +1279,7 @@ def handle_instruction(
             preview.get_timeline(),
             preview.state.transcript,
             resolver_edits,
+            embedder=embedder,
         )
         try:
             (
@@ -1517,7 +1519,12 @@ def resolver_note(intent: Mapping, resolver: Resolver) -> str:
     return f"{source_note} {destination.note}"
 
 
-def answer(session: SessionManager, answer_text: str) -> dict:
+def answer(
+    session: SessionManager,
+    answer_text: str,
+    *,
+    embedder: Callable[[str, str], float] | None = None,
+) -> dict:
     """Apply the stored pending instruction after parsing an explicit choice."""
     pending = session.state.pending_question
     if pending is None:
@@ -1553,6 +1560,7 @@ def answer(session: SessionManager, answer_text: str) -> dict:
             copy.deepcopy(pending["intent_ops"]),
             instruction=pending["instruction"],
             _confirmed_repeat=True,
+            embedder=embedder,
         )
     choice = _answer_choice(answer_text)
     if choice is None:
@@ -1564,7 +1572,12 @@ def answer(session: SessionManager, answer_text: str) -> dict:
             if pending["target_path"] == "before"
             else intent.get("target")
         )
-        resolver = Resolver(session.get_timeline(), session.state.transcript, session.state.stack)
+        resolver = Resolver(
+            session.get_timeline(),
+            session.state.transcript,
+            session.state.stack,
+            embedder=embedder,
+        )
         if intent.get("op") == "reorder" and pending["target_path"] == "before":
             resolution = _destination_resolution(target_value, resolver)
         else:
@@ -1586,6 +1599,7 @@ def answer(session: SessionManager, answer_text: str) -> dict:
         session,
         saved_ops,
         instruction=pending["instruction"],
+        embedder=embedder,
     )
 
 

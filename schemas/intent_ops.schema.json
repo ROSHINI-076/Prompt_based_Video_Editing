@@ -1,0 +1,1215 @@
+{
+  "$defs": {
+    "AddCaptionIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "add_caption",
+          "title": "Op",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "phrase": "#/$defs/PhraseTarget",
+              "time": "#/$defs/TimeTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeTarget"
+            },
+            {
+              "$ref": "#/$defs/PhraseTarget"
+            }
+          ],
+          "title": "Target"
+        },
+        "style": {
+          "additionalProperties": true,
+          "title": "Style",
+          "type": "object"
+        }
+      },
+      "required": [
+        "op",
+        "text",
+        "target"
+      ],
+      "title": "AddCaptionIntent",
+      "type": "object"
+    },
+    "AddMusicIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "add_music",
+          "title": "Op",
+          "type": "string"
+        },
+        "track_id": {
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        },
+        "duck_db": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "default": -12.0,
+          "title": "Duck Db"
+        },
+        "duck_when": {
+          "const": "speech",
+          "default": "speech",
+          "title": "Duck When",
+          "type": "string"
+        },
+        "replace": {
+          "default": false,
+          "title": "Replace",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "track_id"
+      ],
+      "title": "AddMusicIntent",
+      "type": "object"
+    },
+    "AnyTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "any",
+          "title": "Kind",
+          "type": "string"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "AnyTarget",
+      "type": "object"
+    },
+    "AutoCaptionIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "auto_caption",
+          "title": "Op",
+          "type": "string"
+        },
+        "max_words": {
+          "default": 8,
+          "minimum": 1,
+          "title": "Max Words",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "AutoCaptionIntent",
+      "type": "object"
+    },
+    "BleepIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "bleep",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "phrase": "#/$defs/PhraseTarget",
+              "time": "#/$defs/TimeTarget",
+              "topic": "#/$defs/TopicTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeTarget"
+            },
+            {
+              "$ref": "#/$defs/PhraseTarget"
+            },
+            {
+              "$ref": "#/$defs/TopicTarget"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "op",
+        "target"
+      ],
+      "title": "BleepIntent",
+      "type": "object"
+    },
+    "CaptionTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "caption",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "CaptionTarget",
+      "type": "object"
+    },
+    "CutIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "cut",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "phrase": "#/$defs/PhraseTarget",
+              "time": "#/$defs/TimeTarget",
+              "topic": "#/$defs/TopicTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeTarget"
+            },
+            {
+              "$ref": "#/$defs/PhraseTarget"
+            },
+            {
+              "$ref": "#/$defs/TopicTarget"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "op",
+        "target"
+      ],
+      "title": "CutIntent",
+      "type": "object"
+    },
+    "CutOrdinalTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "cut_ordinal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "from_end": {
+          "minimum": 1,
+          "title": "From End",
+          "type": "integer"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind",
+        "from_end"
+      ],
+      "title": "CutOrdinalTarget",
+      "type": "object"
+    },
+    "DestinationPhraseTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "phrase",
+          "title": "Kind",
+          "type": "string"
+        },
+        "phrase": {
+          "minLength": 1,
+          "title": "Phrase",
+          "type": "string"
+        },
+        "speaker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speaker"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind",
+        "phrase"
+      ],
+      "title": "DestinationPhraseTarget",
+      "type": "object"
+    },
+    "DestinationTimeTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "time",
+          "title": "Kind",
+          "type": "string"
+        },
+        "time_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Time S"
+        },
+        "policy": {
+          "default": "current",
+          "enum": [
+            "current",
+            "original"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind",
+        "time_s"
+      ],
+      "title": "DestinationTimeTarget",
+      "type": "object"
+    },
+    "EditTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "edit",
+          "title": "Kind",
+          "type": "string"
+        },
+        "edit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Edit Id"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "EditTarget",
+      "type": "object"
+    },
+    "EndTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "end",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "EndTarget",
+      "type": "object"
+    },
+    "HistoryIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "undo",
+            "redo"
+          ],
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "HistoryIntent",
+      "type": "object"
+    },
+    "KeepOnlyIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "keep_only",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "phrase": "#/$defs/PhraseTarget",
+              "time": "#/$defs/TimeTarget",
+              "topic": "#/$defs/TopicTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeTarget"
+            },
+            {
+              "$ref": "#/$defs/PhraseTarget"
+            },
+            {
+              "$ref": "#/$defs/TopicTarget"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "op",
+        "target"
+      ],
+      "title": "KeepOnlyIntent",
+      "type": "object"
+    },
+    "KeepPauseIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "keep_pause",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "phrase": "#/$defs/PhraseTarget",
+              "word": "#/$defs/WordTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PhraseTarget"
+            },
+            {
+              "$ref": "#/$defs/WordTarget"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "op",
+        "target"
+      ],
+      "title": "KeepPauseIntent",
+      "type": "object"
+    },
+    "MuteIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "mute",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "phrase": "#/$defs/PhraseTarget",
+              "time": "#/$defs/TimeTarget",
+              "topic": "#/$defs/TopicTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeTarget"
+            },
+            {
+              "$ref": "#/$defs/PhraseTarget"
+            },
+            {
+              "$ref": "#/$defs/TopicTarget"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "op",
+        "target"
+      ],
+      "title": "MuteIntent",
+      "type": "object"
+    },
+    "OverlapTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "overlap",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "End"
+        },
+        "policy": {
+          "default": "original",
+          "enum": [
+            "current",
+            "original"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind",
+        "start",
+        "end"
+      ],
+      "title": "OverlapTarget",
+      "type": "object"
+    },
+    "PhraseTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "phrase",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "relation": {
+          "default": "at",
+          "enum": [
+            "at",
+            "before",
+            "after"
+          ],
+          "title": "Relation",
+          "type": "string"
+        },
+        "speaker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speaker"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "title": "PhraseTarget",
+      "type": "object"
+    },
+    "RemoveFillersIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "remove_fillers",
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "RemoveFillersIntent",
+      "type": "object"
+    },
+    "RemoveSilenceIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "remove_silence",
+          "title": "Op",
+          "type": "string"
+        },
+        "min_gap_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "ge": 0,
+          "title": "Min Gap S"
+        }
+      },
+      "required": [
+        "op",
+        "min_gap_s"
+      ],
+      "title": "RemoveSilenceIntent",
+      "type": "object"
+    },
+    "RenderIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "render",
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "RenderIntent",
+      "type": "object"
+    },
+    "ReorderIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "reorder",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "phrase": "#/$defs/PhraseTarget",
+              "time": "#/$defs/TimeTarget",
+              "topic": "#/$defs/TopicTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeTarget"
+            },
+            {
+              "$ref": "#/$defs/PhraseTarget"
+            },
+            {
+              "$ref": "#/$defs/TopicTarget"
+            }
+          ],
+          "title": "Target"
+        },
+        "before": {
+          "discriminator": {
+            "mapping": {
+              "end": "#/$defs/EndTarget",
+              "phrase": "#/$defs/DestinationPhraseTarget",
+              "start": "#/$defs/StartTarget",
+              "time": "#/$defs/DestinationTimeTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/StartTarget"
+            },
+            {
+              "$ref": "#/$defs/EndTarget"
+            },
+            {
+              "$ref": "#/$defs/DestinationTimeTarget"
+            },
+            {
+              "$ref": "#/$defs/DestinationPhraseTarget"
+            }
+          ],
+          "title": "Before"
+        }
+      },
+      "required": [
+        "op",
+        "target",
+        "before"
+      ],
+      "title": "ReorderIntent",
+      "type": "object"
+    },
+    "RestoreIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "restore",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "any": "#/$defs/AnyTarget",
+              "cut_ordinal": "#/$defs/CutOrdinalTarget",
+              "edit": "#/$defs/EditTarget",
+              "overlap": "#/$defs/OverlapTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EditTarget"
+            },
+            {
+              "$ref": "#/$defs/OverlapTarget"
+            },
+            {
+              "$ref": "#/$defs/AnyTarget"
+            },
+            {
+              "$ref": "#/$defs/CutOrdinalTarget"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "op",
+        "target"
+      ],
+      "title": "RestoreIntent",
+      "type": "object"
+    },
+    "SpeedIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "speed",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "phrase": "#/$defs/PhraseTarget",
+              "time": "#/$defs/TimeTarget",
+              "topic": "#/$defs/TopicTarget"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeTarget"
+            },
+            {
+              "$ref": "#/$defs/PhraseTarget"
+            },
+            {
+              "$ref": "#/$defs/TopicTarget"
+            }
+          ],
+          "title": "Target"
+        },
+        "factor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Factor"
+        }
+      },
+      "required": [
+        "op",
+        "target",
+        "factor"
+      ],
+      "title": "SpeedIntent",
+      "type": "object"
+    },
+    "StartTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "start",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "StartTarget",
+      "type": "object"
+    },
+    "StyleIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "style",
+          "title": "Op",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/CaptionTarget"
+        },
+        "style": {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "title": "Style",
+          "type": "object"
+        }
+      },
+      "required": [
+        "op",
+        "target",
+        "style"
+      ],
+      "title": "StyleIntent",
+      "type": "object"
+    },
+    "TimeTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "time",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "from_start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Start"
+        },
+        "from_end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From End"
+        },
+        "policy": {
+          "default": "current",
+          "enum": [
+            "current",
+            "original"
+          ],
+          "title": "Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "TimeTarget",
+      "type": "object"
+    },
+    "TopicTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "topic",
+          "title": "Kind",
+          "type": "string"
+        },
+        "query": {
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "speaker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speaker"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind",
+        "query"
+      ],
+      "title": "TopicTarget",
+      "type": "object"
+    },
+    "WordTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "word",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "choice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "title": "WordTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The complete LLM/mock response envelope.",
+  "properties": {
+    "ops": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "add_caption": "#/$defs/AddCaptionIntent",
+            "add_music": "#/$defs/AddMusicIntent",
+            "auto_caption": "#/$defs/AutoCaptionIntent",
+            "bleep": "#/$defs/BleepIntent",
+            "cut": "#/$defs/CutIntent",
+            "keep_only": "#/$defs/KeepOnlyIntent",
+            "keep_pause": "#/$defs/KeepPauseIntent",
+            "mute": "#/$defs/MuteIntent",
+            "redo": "#/$defs/HistoryIntent",
+            "remove_fillers": "#/$defs/RemoveFillersIntent",
+            "remove_silence": "#/$defs/RemoveSilenceIntent",
+            "render": "#/$defs/RenderIntent",
+            "reorder": "#/$defs/ReorderIntent",
+            "restore": "#/$defs/RestoreIntent",
+            "speed": "#/$defs/SpeedIntent",
+            "style": "#/$defs/StyleIntent",
+            "undo": "#/$defs/HistoryIntent"
+          },
+          "propertyName": "op"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/CutIntent"
+          },
+          {
+            "$ref": "#/$defs/KeepOnlyIntent"
+          },
+          {
+            "$ref": "#/$defs/SpeedIntent"
+          },
+          {
+            "$ref": "#/$defs/ReorderIntent"
+          },
+          {
+            "$ref": "#/$defs/AddCaptionIntent"
+          },
+          {
+            "$ref": "#/$defs/StyleIntent"
+          },
+          {
+            "$ref": "#/$defs/MuteIntent"
+          },
+          {
+            "$ref": "#/$defs/BleepIntent"
+          },
+          {
+            "$ref": "#/$defs/RestoreIntent"
+          },
+          {
+            "$ref": "#/$defs/RemoveFillersIntent"
+          },
+          {
+            "$ref": "#/$defs/RemoveSilenceIntent"
+          },
+          {
+            "$ref": "#/$defs/KeepPauseIntent"
+          },
+          {
+            "$ref": "#/$defs/AutoCaptionIntent"
+          },
+          {
+            "$ref": "#/$defs/AddMusicIntent"
+          },
+          {
+            "$ref": "#/$defs/HistoryIntent"
+          },
+          {
+            "$ref": "#/$defs/RenderIntent"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Ops",
+      "type": "array"
+    }
+  },
+  "required": [
+    "ops"
+  ],
+  "title": "IntentOps",
+  "type": "object"
+}

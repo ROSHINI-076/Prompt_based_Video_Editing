@@ -141,3 +141,37 @@ from another speaker asks whether to remove or keep that host question before ap
 The answer is stored in the pending structured intent; the guest match remains speaker-constrained.
 **Rationale:** The cut selector is based on replayed history, and the lead-in decision is explicit,
 so neither operation guesses based on shifted clock positions or silently removes another speaker.
+
+## D012: Keep provider integration outside the engine
+
+**Date:** 2026-10-18
+**Context:** Phase 3 adds natural-language parsing, speech-to-text and semantic embeddings without
+weakening the pure-engine boundary.
+**Decision:** Adapter protocols and implementations live under `incubrix/adapters/`, while parsing,
+cache selection and response orchestration live under `incubrix/pipeline/`. The engine receives an
+optional `(query, sentence) -> similarity` callable through its existing resolver hook; it does not
+import any adapter or pipeline module. The in-memory parser cache keys provider, model, prompt
+version, normalized instruction and a digest of compact context. Database persistence is deferred
+to Phase 4.
+**Rationale:** Offline mock defaults stay deterministic, and the same resolver logic can work with
+keyword fallback or an explicitly selected semantic adapter.
+
+## D013: Support Python 3.10 and keep heavyweight providers optional
+
+**Date:** 2026-10-18
+**Context:** The Phase 3 implementation must run on Python 3.10 and 3.11 while keeping tests and
+default installs lightweight and offline.
+**Decision:** Set the declared minimum and lint/type-check targets to Python 3.10. Pin all runtime
+dependencies exactly. `faster-whisper` and `sentence-transformers` are exact-pinned optional extras
+and are imported only when their adapters are invoked.
+**Rationale:** Mock providers require no keys, network, model downloads or heavyweight dependencies.
+
+## D014: Report renderer requests honestly until the rendering phase
+
+**Date:** 2026-10-18
+**Context:** The Phase 3 natural-language acceptance path includes a final “render” step, but the
+current repository has not implemented the renderer or render job.
+**Decision:** The parser recognizes the command and returns the ordinary response envelope with an
+explicit warning that no video was rendered. It does not claim a render succeeded.
+**Rationale:** This permits the complete parser-to-engine conversation to be exercised without
+misrepresenting deferred Phase 5 behavior.

@@ -6,6 +6,7 @@ keys, or model names. See .env.example for a complete list.
 
 from __future__ import annotations
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -38,13 +39,18 @@ class Settings(BaseSettings):
     # ── Adapters ────────────────────────────────────────────────────
     STT_PROVIDER: str = "mock"  # mock | faster_whisper
     STT_MODEL: str = "base"  # whisper model size
+    STT_DEVICE: str = "cpu"
     LLM_PROVIDER: str = "mock"  # mock | groq | openai
     LLM_MODEL: str = "llama-3.3-70b-versatile"
     LLM_BASE_URL: str = "https://api.groq.com/openai/v1"
+    LLM_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    LLM_TIMEOUT_S: float = Field(default=30.0, gt=0)
+    LLM_MAX_RETRIES: int = Field(default=2, ge=0)
     EMBEDDER_PROVIDER: str = "mock"  # mock | local
     EMBEDDER_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDER_DIMENSIONS: int = Field(default=128, ge=1)
 
     # ── Engine limits ───────────────────────────────────────────────
     MIN_SPEED: float = 0.25
@@ -70,7 +76,9 @@ class Settings(BaseSettings):
 
     # ── Cost estimation (price per unit from env) ───────────────────
     STT_COST_PER_MINUTE: float = 0.006
-    LLM_COST_PER_1K_TOKENS: float = 0.0008
+    LLM_COST_PER_1K_TOKENS: float = 0.0
+    LLM_INPUT_COST_PER_1K_TOKENS: float = 0.0
+    LLM_OUTPUT_COST_PER_1K_TOKENS: float = 0.0
 
     # ── Misc ────────────────────────────────────────────────────────
     TEST_MODE: bool = False  # enables file:// URL intake

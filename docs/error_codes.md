@@ -6,6 +6,7 @@
 | `CUT_ALL` | The operation would remove every frame from the video. |
 | `EDIT_CONFLICT` | The target conflicts with content removed by an earlier edit, or a second music track conflicts with the active music edit. |
 | `INVALID_ARGUMENT` | An operation has a missing, malformed, or incorrectly typed argument. |
+| `INSTRUCTION_NOT_UNDERSTOOD` | The configured instruction parser could not produce a valid supported intent. |
 | `INVALID_SPEED` | The speed factor is not a finite number in the supported range. |
 | `NO_CHANGE` | The operation is redundant, was already applied (including repeated filler/silence removal or auto-captioning), or was declined without changing the timeline. |
 | `NO_MATCH` | No matching content, filler word, unprotected silence gap, edit, caption, or pending question was found. |
