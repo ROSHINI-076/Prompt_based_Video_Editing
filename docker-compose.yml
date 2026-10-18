@@ -72,7 +72,6 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       EMBEDDER_PROVIDER: ${EMBEDDER_PROVIDER:-mock}
       TEST_MODE: ${TEST_MODE:-false}
-      AUTH_DISABLED: ${AUTH_DISABLED:-false}
     command: uvicorn incubrix.api.app:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
@@ -112,7 +111,6 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       EMBEDDER_PROVIDER: ${EMBEDDER_PROVIDER:-mock}
       TEST_MODE: ${TEST_MODE:-false}
-      AUTH_DISABLED: ${AUTH_DISABLED:-false}
     command: python -m incubrix.jobs.worker
     depends_on:
       postgres:

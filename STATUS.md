@@ -19,14 +19,14 @@ Updated: 2026-10-18 (Phase 4B Job Queue)
 
 | # | Requirement | Status | Evidence |
 |---|-------------|--------|----------|
-| 1 | One-command start/test | Done | `docker-compose.yml` (all 4+1 containers healthy), `Makefile`, `tests/test_smoke.py` |
-| 2 | OpenAPI 3.1 | Done | `openapi.yaml` generated from FastAPI app (OpenAPI 3.1.0) |
-| 3 | Background jobs | Partial | `incubrix/jobs/queue.py`, `incubrix/jobs/worker.py`, `incubrix/jobs/handlers.py`; HTTP job creation/routes still pending |
-| 4 | Safe retries (Idempotency-Key) | Done | `incubrix/api/idempotency.py` with key reservation/replay and 409 on reuse |
-| 5 | Clear errors | Done | Standard error JSON in `incubrix/api/errors.py` and `incubrix/api/app.py` |
-| 6 | Configuration | Done | `incubrix/config.py` (pydantic-settings), `.env.example` |
-| 7 | Files in/out | Partial | S3 adapter, streaming content-addressed upload, verify_source, presigned URLs (`incubrix/adapters/storage/s3.py`) |
-| 8 | Logs & health | Done | `/health` (200), `/ready` (200), structlog with `X-Correlation-Id` |
+| 1 | One-command start/test | Partial | `tests/test_smoke.py::test_health_endpoint`; no named test verifies the complete Compose start/test workflow |
+| 2 | OpenAPI 3.1 | Not done | `openapi.yaml` exists, but no passing named test verifies OpenAPI 3.1 or detects app/spec drift |
+| 3 | Background jobs | Partial | `tests/unit/test_job_queue.py::test_job_lifecycle_persists_claim_progress_and_result`; HTTP job lifecycle integration remains untested |
+| 4 | Safe retries (Idempotency-Key) | Partial | `incubrix/api/idempotency.py`; no passing named test covers same-key replay, key reuse, and concurrent requests |
+| 5 | Clear errors | Partial | `tests/unit/test_answers.py::test_rejection_codes_and_error_shape` covers engine answers; API error status/envelope matrix remains untested |
+| 6 | Configuration | Partial | `tests/test_smoke.py::test_settings_load` checks selected defaults; no named test verifies every setting and environment contract |
+| 7 | Files in/out | Partial | `tests/integration/test_data_layer.py::test_source_upload_and_verify_source`; API upload/download flow remains untested |
+| 8 | Logs & health | Partial | `tests/test_smoke.py::test_health_endpoint`, `test_ready_endpoint_up`, `test_ready_endpoint_down`, `test_correlation_id_echoed`, and `test_correlation_id_generated`; structured JSON log fields lack a named contract test |
 | 9 | Output manifest | Not done | Scheduled for Phase 4 / 5 |
 | 10 | Batch runner | Not done | Scheduled for Phase 6 |
 
