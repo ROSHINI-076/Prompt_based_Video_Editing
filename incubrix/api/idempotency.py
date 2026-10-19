@@ -42,6 +42,11 @@ class IdempotencyMiddleware:
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         key = headers.get(b"idempotency-key", b"").decode("latin-1").strip()
         if not key:
+            if scope.get("method") == "POST" and scope.get("path", "").startswith("/api/v1/"):
+                await self._send_error(
+                    send, 422, "VALIDATION_ERROR", "Idempotency-Key header is required."
+                )
+                return
             await self.app(scope, receive, send)
             return
         if len(key) > 255:

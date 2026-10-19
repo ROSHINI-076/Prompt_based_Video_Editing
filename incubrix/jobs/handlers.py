@@ -7,6 +7,7 @@ import json
 import socket
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from incubrix.config import Settings
 from incubrix.db.engine import get_session_factory
 from incubrix.db.mapping import transcript_to_record_kwargs
 from incubrix.db.models import TranscriptRecord, VideoRecord
+from incubrix.manifest import build_intake_manifest
 
 
 class JobExecutionError(Exception):
@@ -187,12 +189,14 @@ def intake_and_transcribe(
     settings: Settings,
 ) -> dict[str, Any]:
     """Fetch an input, preserve it in content-addressed S3, and persist transcript."""
+    stage_timings_s: dict[str, float] = {}
     with tempfile.TemporaryDirectory(prefix="incubrix-intake-") as temp_dir:
         media_path = Path(temp_dir) / "source"
         storage = S3Storage(settings)
         stage_key = payload.get("stage_key")
         local_path = payload.get("local_path")
         source_url = payload.get("url")
+        stage_started = time.perf_counter()
         if stage_key:
             storage.get_to_path(stage_key, media_path)
         elif local_path:
@@ -208,20 +212,25 @@ def intake_and_transcribe(
                 _download_url(source_url, media_path, settings)
         else:
             raise JobExecutionError("INVALID_JOB_PAYLOAD", "Job input is missing.")
+        stage_timings_s["download_s"] = time.perf_counter() - stage_started
 
         if not media_path.is_file():
             raise JobExecutionError("VIDEO_NOT_FOUND", "Video input file was not available.")
         progress(10)
         extension = Path(payload.get("filename", "video.mp4")).suffix or ".mp4"
+        stage_started = time.perf_counter()
         try:
             sha256, source_key = storage.store_source_file(media_path, extension)
         except Exception as exc:
             raise JobExecutionError(
                 "STORAGE_UNAVAILABLE", "Could not store source video.", retryable=True
             ) from exc
+        stage_timings_s["source_storage_s"] = time.perf_counter() - stage_started
         progress(40)
 
+        stage_started = time.perf_counter()
         duration_s, fps, has_audio, is_vfr = _probe_video(media_path)
+        stage_timings_s["probe_s"] = time.perf_counter() - stage_started
         warnings: list[str] = []
         if is_vfr:
             warnings.append(
@@ -234,18 +243,21 @@ def intake_and_transcribe(
         if settings.STT_PROVIDER == "mock" and not transcript_path:
             transcript_path = str(Path(temp_dir) / "empty-transcript.json")
             Path(transcript_path).write_text('{"words": []}', encoding="utf-8")
+        stage_started = time.perf_counter()
         try:
             result = get_stt_adapter(settings).transcribe(transcript_path or media_path)
         except Exception as exc:
             raise JobExecutionError(
                 "STT_UNAVAILABLE", "Speech transcription failed.", retryable=True
             ) from exc
+        stage_timings_s["transcription_s"] = time.perf_counter() - stage_started
         transcript = result.transcript
         transcript.warnings.extend(warnings)
         progress(80)
 
         video_id = str(payload.get("video_id") or f"vid_{sha256[:24]}")
         session_factory = get_session_factory(settings.DATABASE_URL)
+        stage_started = time.perf_counter()
         try:
             with session_factory.begin() as session:
                 video = session.execute(
@@ -284,8 +296,32 @@ def intake_and_transcribe(
             raise JobExecutionError(
                 "DATABASE_UNAVAILABLE", "Could not persist intake metadata.", retryable=True
             ) from exc
+        stage_timings_s["persistence_s"] = time.perf_counter() - stage_started
         if stage_key:
             storage.delete(stage_key)
+
+        manifest = build_intake_manifest(
+            job_id=str(payload.get("job_id", "unknown")),
+            video_id=video_id,
+            source_sha256=sha256,
+            duration_s=duration_s,
+            stt_usage=result.usage,
+            stage_timings_s=stage_timings_s,
+            warnings=warnings,
+            settings=settings,
+        )
+        manifest_key = f"manifests/jobs/{manifest['job_id']}.json"
+        try:
+            storage.put_bytes(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+                manifest_key,
+                content_type="application/json",
+            )
+            manifest_url = storage.presigned_get_url(manifest_key)
+        except Exception as exc:
+            raise JobExecutionError(
+                "STORAGE_UNAVAILABLE", "Could not store the intake manifest.", retryable=True
+            ) from exc
         progress(100)
         return {
             "video_id": video_id,
@@ -295,6 +331,7 @@ def intake_and_transcribe(
             "sha256": sha256,
             "status": "ready",
             "warnings": warnings,
+            "manifest": {"key": manifest_key, "url": manifest_url},
         }
 
 

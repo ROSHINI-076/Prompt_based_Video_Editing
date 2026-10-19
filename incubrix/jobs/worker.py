@@ -19,7 +19,12 @@ from incubrix.config import Settings, get_settings
 from incubrix.db.engine import run_migrations
 from incubrix.jobs.handlers import JobExecutionError, build_handlers
 from incubrix.jobs.queue import JobQueue
-from incubrix.logging import get_logger, job_id_var, setup_logging
+from incubrix.logging import (
+    correlation_id_var,
+    get_logger,
+    job_id_var,
+    setup_logging,
+)
 
 log = get_logger(__name__)
 
@@ -53,6 +58,9 @@ class Worker:
             return False
 
         token = job_id_var.set(job.id)
+        correlation_token = correlation_id_var.set(
+            str(job.payload.get("_correlation_id") or job.id)
+        )
         log.info("job_started", job_type=job.type, attempt=job.attempts)
         heartbeat_stop = threading.Event()
         heartbeat_thread = threading.Thread(
@@ -69,7 +77,7 @@ class Worker:
                     "UNKNOWN_JOB_TYPE", "No handler is registered for this job."
                 )
             result = handler(
-                job.payload,
+                {**job.payload, "job_id": job.id},
                 lambda progress: self.queue.heartbeat(job.id, self.worker_id, progress),
             )
             self.queue.succeed(job.id, self.worker_id, result)
@@ -91,6 +99,7 @@ class Worker:
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=2)
             job_id_var.reset(token)
+            correlation_id_var.reset(correlation_token)
 
         self._send_callback(job.id)
         return True

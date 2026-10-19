@@ -32,26 +32,26 @@ class Settings(BaseSettings):
 
     # ── S3 / MinIO ──────────────────────────────────────────────────
     S3_ENDPOINT: str = "http://minio:9000"
-    S3_ACCESS_KEY: str = "minioadmin"
-    S3_SECRET_KEY: str = "minioadmin"
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: str = ""
     S3_BUCKET: str = "incubrix"
     S3_REGION: str = "us-east-1"
     S3_PRESIGNED_EXPIRY: int = 3600  # seconds
 
     # ── Adapters ────────────────────────────────────────────────────
     STT_PROVIDER: str = "mock"  # mock | faster_whisper
-    STT_MODEL: str = "base"  # whisper model size
+    STT_MODEL: str = ""
     STT_DEVICE: str = "cpu"
     LLM_PROVIDER: str = "mock"  # mock | groq | openai
-    LLM_MODEL: str = "llama-3.3-70b-versatile"
-    LLM_BASE_URL: str = "https://api.groq.com/openai/v1"
+    LLM_MODEL: str = ""
+    LLM_BASE_URL: str = ""
     LLM_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     LLM_TIMEOUT_S: float = Field(default=30.0, gt=0)
     LLM_MAX_RETRIES: int = Field(default=2, ge=0)
     EMBEDDER_PROVIDER: str = "mock"  # mock | local
-    EMBEDDER_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDER_MODEL: str = ""
     EMBEDDER_DIMENSIONS: int = Field(default=128, ge=1)
 
     # ── Engine limits ───────────────────────────────────────────────
@@ -70,8 +70,8 @@ class Settings(BaseSettings):
     # ── Jobs / callbacks ────────────────────────────────────────────
     WORKER_POLL_INTERVAL_S: float = 1.0
     WORKER_CONCURRENCY: int = 2
-    HMAC_SECRET: str = "change-me-in-production"
-    CALLBACK_HMAC_SECRET: str = "change-me-in-production"
+    HMAC_SECRET: str = ""
+    CALLBACK_HMAC_SECRET: str = ""
     CALLBACK_MAX_RETRIES: int = 3
     CALLBACK_BACKOFF_S: float = 2.0
     JOB_MAX_ATTEMPTS: int = 3

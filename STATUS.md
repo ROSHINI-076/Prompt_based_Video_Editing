@@ -1,6 +1,6 @@
 # IncuBrix – Status Tracker
 
-Updated: 2026-10-18 (Phase 4B Job Queue)
+Updated: 2026-10-18 (Stage 4C HTTP Evidence)
 
 ## Must-haves
 
@@ -13,22 +13,22 @@ Updated: 2026-10-18 (Phase 4B Job Queue)
 | 5 | Render matches timeline | Not done | Scheduled for Phase 5 (renderer & verifier) |
 | 6 | Undo/redo/restore | Done (engine scope) | `incubrix/engine/session.py`; `tests/scenarios/worked_example.yaml`; Phase 3 pipeline test |
 | 7 | One stated time policy | Done (engine scope) | `incubrix/engine/answers.py`; `tests/scenarios/worked_example.yaml` |
-| 8 | Integration Standard + runners + demo | Partial | Phase 0 scaffold, Phase 4A data layer and Phase 4B queue verified; HTTP API incomplete |
+| 8 | Integration Standard + runners + demo | Partial | HTTP integration verified in Stage 4C; session/batch runners are Stage 6 and rendering is Stage 5 |
 
 ## Integration Standard (10 points)
 
 | # | Requirement | Status | Evidence |
 |---|-------------|--------|----------|
-| 1 | One-command start/test | Partial | `tests/test_smoke.py::test_health_endpoint`; no named test verifies the complete Compose start/test workflow |
-| 2 | OpenAPI 3.1 | Not done | `openapi.yaml` exists, but no passing named test verifies OpenAPI 3.1 or detects app/spec drift |
-| 3 | Background jobs | Partial | `tests/unit/test_job_queue.py::test_job_lifecycle_persists_claim_progress_and_result`; `tests/integration/test_api_http.py::test_http_upload_intake_and_eight_step_worked_example` covers intake over HTTP; rendering/progress coverage remains incomplete |
-| 4 | Safe retries (Idempotency-Key) | Done | `tests/integration/test_api_http.py::test_instruction_idempotency_replays_response_and_applies_once`; `test_idempotency_rejects_reused_key_with_different_instruction_body`; `test_video_intake_idempotency_returns_same_job_without_repeating_work`; `test_concurrent_idempotent_instructions_have_one_effect` |
+| 1 | One-command start/test | Done (Windows script and Make target) | Cold-start `.\scripts\test.ps1` passed all 523 tests; GNU Make 4.4.1 `make test` passed all 523 tests |
+| 2 | OpenAPI 3.1 | Done | `tests/unit/test_openapi.py::test_committed_openapi_yaml_matches_live_schema`; `test_all_api_operations_document_security_responses_and_post_bodies` |
+| 3 | Background jobs | Partial (render deferred to Stage 5) | `tests/integration/test_api_http.py::test_http_job_lifecycle_and_json_log_contract` verifies queued/running/progress/succeeded/failed; `test_http_route_matrix_success_and_failure` verifies job routes |
+| 4 | Safe retries (Idempotency-Key) | Done | `tests/integration/test_api_http.py::test_http_post_requires_idempotency_key`; `test_instruction_idempotency_replays_response_and_applies_once`; `test_idempotency_rejects_reused_key_with_different_instruction_body`; `test_video_intake_idempotency_returns_same_job_without_repeating_work`; `test_concurrent_idempotent_instructions_have_one_effect` |
 | 5 | Clear errors | Done | `tests/integration/test_api_http.py::test_http_unauthorized_error_shape`; `test_http_not_found_error_shape`; `test_http_method_not_allowed_error_shape`; `test_http_oversized_upload_error_shape`; `test_http_rate_limit_error_shape`; `test_http_validation_error_includes_field_details`; `test_http_internal_error_hides_traceback`; `test_concurrent_session_instructions_return_conflict_and_preserve_history`; `test_ready_returns_503_when_postgres_is_unreachable`; `test_ready_returns_503_when_minio_is_unreachable` |
-| 6 | Configuration | Partial | `tests/test_smoke.py::test_settings_load` checks selected defaults; no named test verifies every setting and environment contract |
-| 7 | Files in/out | Partial | `tests/integration/test_data_layer.py::test_source_upload_and_verify_source`; `tests/integration/test_api_http.py::test_http_upload_intake_and_eight_step_worked_example` covers HTTP upload and source verification; rendered download flow remains untested |
-| 8 | Logs & health | Partial | `tests/test_smoke.py::test_health_endpoint`, `test_ready_endpoint_up`, `test_ready_endpoint_down`, `test_correlation_id_echoed`, and `test_correlation_id_generated`; structured JSON log fields lack a named contract test |
-| 9 | Output manifest | Not done | Scheduled for Phase 4 / 5 |
-| 10 | Batch runner | Not done | Scheduled for Phase 6 |
+| 6 | Configuration | Done | `tests/unit/test_configuration_contract.py::test_every_settings_field_is_documented`; `test_package_has_no_embedded_credentials_paths_or_hosted_model_ids` |
+| 7 | Files in/out | Partial (rendered media deferred to Stage 5) | `tests/integration/test_data_layer.py::test_source_upload_and_verify_source`; `tests/integration/test_api_http.py::test_http_upload_intake_and_eight_step_worked_example`; intake manifests are retrieved from MinIO and linked in job results |
+| 8 | Logs & health | Done | `tests/integration/test_api_http.py::test_http_job_lifecycle_and_json_log_contract`; `test_ready_returns_200_when_postgres_and_minio_are_up`; `test_ready_returns_503_when_postgres_is_unreachable`; `test_ready_returns_503_when_minio_is_unreachable` |
+| 9 | Output manifest | Done (intake jobs; render manifests deferred to Stage 5) | `tests/unit/test_manifest.py::test_intake_manifest_has_required_audit_fields_without_secrets`; `tests/integration/test_api_http.py::test_http_upload_intake_and_eight_step_worked_example`; `tests/e2e/test_compose_http.py::test_compose_upload_job_manifest_and_http_result_links` |
+| 10 | Batch runner | Not done | Scheduled for Stage 6 |
 
 ## Levels
 
@@ -128,6 +128,22 @@ Updated: 2026-10-18 (Phase 4B Job Queue)
 
 ### 4B status summary
 
-- The queue and worker primitives are implemented and unit-tested.
-- The API layer and route protection are present but not yet fully proven against every HTTP path and failure mode.
-- The remaining Phase 4B items are intentionally deferred beyond this status audit and must be validated with real Postgres + MinIO integration tests before 4C or Phase 5 begins.
+- The queue and worker primitives, authenticated HTTP surface, route matrix, and principal failure modes are covered with real Postgres and MinIO integration tests.
+- Rendering remains deliberately reserved for Stage 5; a render request is queued but its worker handler is still `NOT_IMPLEMENTED`.
+- The Windows cold-start script and Make target are both verified. `make test` was invoked with the user-scoped GNU Make binary because the current PowerShell PATH did not refresh after installation.
+
+## Stage 4C: Manifest, OpenAPI, and HTTP integration evidence
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Intake job manifest (provider/model metadata, safe settings, stage timings, costs, rights, AI flags, no secrets) | Done | `tests/unit/test_manifest.py::test_intake_manifest_has_required_audit_fields_without_secrets`; `tests/integration/test_api_http.py::test_http_upload_intake_and_eight_step_worked_example` |
+| Manifest stored in MinIO and linked from job results | Done | `tests/integration/test_api_http.py::test_http_upload_intake_and_eight_step_worked_example`; `tests/e2e/test_compose_http.py::test_compose_upload_job_manifest_and_http_result_links` |
+| OpenAPI 3.1 YAML generation and exact drift check | Done | `tests/unit/test_openapi.py::test_committed_openapi_yaml_matches_live_schema`; `test_all_api_operations_document_security_responses_and_post_bodies`; `make openapi` target uses `scripts/generate_openapi.py` |
+| Full API route matrix and common success/failure cases | Done | `tests/integration/test_api_http.py::test_http_route_matrix_success_and_failure`; additional upload, auth, validation, health, and dependency error tests in the same module |
+| HTTP job queued/running/progress/success/failure, logs, correlation IDs, no credential leakage | Done | `tests/integration/test_api_http.py::test_http_job_lifecycle_and_json_log_contract` |
+| Config completeness and embedded sensitive/default value scan | Done | `tests/unit/test_configuration_contract.py::test_every_settings_field_is_documented`; `test_package_has_no_embedded_credentials_paths_or_hosted_model_ids` |
+| Real Compose HTTP end-to-end intake and linked manifest | Done | `tests/e2e/test_compose_http.py::test_compose_upload_job_manifest_and_http_result_links` |
+| Cold-start Windows test command | Done | `.\scripts\test.ps1` started the stack from `docker compose down`; 523 pytest tests passed (see `docs/progress.md`) |
+| GNU Make `make test` on this Windows host | Done | GNU Make 4.4.1 user-scope binary ran the Makefile target; 523 pytest tests passed |
+| Rendered job manifest and rendered media output | Not done (Stage 5) | Rendering must not start in Stage 4C; current render worker is `NOT_IMPLEMENTED`. |
+| Session/batch runners and ≥40 scripted scenarios | Not done (Stage 6) | Explicitly deferred. |

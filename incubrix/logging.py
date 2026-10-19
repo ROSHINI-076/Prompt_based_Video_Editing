@@ -20,6 +20,7 @@ job_id_var: ContextVar[str | None] = ContextVar("job_id", default=None)
 
 def add_context(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
     """Inject correlation_id and job_id from contextvars into every log line."""
+    event_dict["message"] = event_dict.pop("event", "")
     cid = correlation_id_var.get()
     if cid:
         event_dict["correlation_id"] = cid

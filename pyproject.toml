@@ -47,6 +47,7 @@ asyncio_default_fixture_loop_scope = "function"
 addopts = "-v --tb=short"
 markers = [
     "integration: integration tests requiring real services (Postgres / MinIO)",
+    "e2e: tests exercising the real Docker Compose stack over HTTP",
 ]
 
 

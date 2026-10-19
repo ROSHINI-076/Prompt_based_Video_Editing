@@ -236,3 +236,44 @@ with a verification mechanism to re-hash the source after a session.
 - `verify_source` re-downloads/streams the stored object, computes its SHA-256, and compares it to
   the recorded intake SHA-256. Any tampering or corruption returns an invalid result and raises
   `SourceIntegrityError`.
+
+## D018: Intake manifests are stored beside, but do not expose, job results
+
+**Context:** Stage 4C requires every completed intake job to expose an auditable manifest containing
+provider/model metadata, non-secret settings, stage timings, cost estimates, rights, and AI flags.
+**Decision:** Build a versioned manifest after intake/transcription, store it under
+`manifests/jobs/{job_id}.json`, and return its object key and presigned URL in the job result.
+Record provider-reported versions where available and use explicit `not-reported` or `not-invoked`
+labels otherwise. Include only an allow-listed subset of non-secret settings; do not serialize
+endpoints, credentials, tokens, or arbitrary environment values. Render manifests are deferred with
+render jobs to Stage 5.
+**Rationale:** Intake output is immediately auditable without claiming that later render stages or
+uninvoked adapters ran.
+
+## D019: OpenAPI is generated from the application contract
+
+**Context:** The checked-in OpenAPI document must remain in sync with the running FastAPI app.
+**Decision:** Preserve the live schema as the source of truth, enrich it with explicit request,
+response, error, bearer-security, and mandatory `Idempotency-Key` contracts, then serialize it as
+OpenAPI 3.1 YAML with `scripts/generate_openapi.py`. The test suite compares the parsed YAML to
+`app.openapi()` exactly.
+**Rationale:** This catches schema drift instead of maintaining a second hand-written contract.
+
+## D020: Idempotency keys are mandatory for API POSTs
+
+**Context:** Safe-retry requirements apply to every POST under `/api/v1/`; silently accepting
+unkeyed edits could apply an instruction twice after a client retry.
+**Decision:** The idempotency middleware rejects a missing key with the standard `VALIDATION_ERROR`
+422 envelope. OpenAPI marks the header required, and tests inject unique keys for ordinary POSTs
+while retaining a dedicated missing-key rejection case.
+**Rationale:** A client retry is safe only when the client supplies a stable key for that request.
+
+## D021: Compose integration tests separate host and container endpoints
+
+**Context:** Host pytest cannot resolve Compose service DNS names, while the API and worker cannot
+reach the host's `localhost` for Postgres or MinIO.
+**Decision:** `scripts/test_suite.py` gives pytest host endpoints and Compose services their internal
+service endpoints, forces offline mock adapters, and starts the real Compose stack before tests.
+The Windows script sets the documented Buildx entitlement workaround only for its process.
+**Rationale:** The same test command exercises real Postgres/MinIO and the HTTP end-to-end flow on
+Windows without checking in machine-specific host paths or secrets.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -98,7 +99,7 @@ def test_api_token_required_for_api_routes(monkeypatch):
 
     from incubrix.api.app import app
 
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-Forwarded-For": f"smoke-{uuid.uuid4().hex}"}) as client:
         no_token = client.get("/api/v1/jobs/nonexistent")
         assert no_token.status_code == 401
         assert no_token.json()["error"]["code"] == "UNAUTHORIZED"

@@ -15,11 +15,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from incubrix.adapters.storage.s3 import S3Storage
 from incubrix.api.errors import APIError, api_error
 from incubrix.api.idempotency import IdempotencyMiddleware
+from incubrix.api.openapi import apply_openapi_contract
 from incubrix.config import get_settings
 from incubrix.db.engine import get_session_factory
 from incubrix.db.models import TranscriptRecord, VideoRecord
@@ -72,15 +75,38 @@ app = FastAPI(
 app.add_middleware(IdempotencyMiddleware)
 
 
+def _custom_openapi() -> dict[str, Any]:
+    """Generate the live app contract and attach explicit API schemas."""
+    if app.openapi_schema is None:
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            routes=app.routes,
+            description="Authenticated prompt-based video editing API.",
+        )
+        app.openapi_schema = apply_openapi_contract(schema)
+    return app.openapi_schema
+
+
+app.openapi = _custom_openapi
+
+
 @app.middleware("http")
 async def security_and_correlation_middleware(request: Request, call_next):
     """Attach a correlation ID, enforce bearer auth, and impose a simple rate limit."""
     cid = request.headers.get("x-correlation-id", str(uuid.uuid4()))
+    request.state.correlation_id = cid
     correlation_id_var.set(cid)
 
     exempt_paths = {"/health", "/ready", "/openapi.json", "/docs", "/docs/oauth2-redirect"}
     if request.url.path in exempt_paths:
         response = await call_next(request)
+        log.info(
+            "http_request_completed",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+        )
         response.headers["X-Correlation-Id"] = cid
         return response
 
@@ -148,6 +174,12 @@ async def security_and_correlation_middleware(request: Request, call_next):
             return response
 
     response = await call_next(request)
+    log.info(
+        "http_request_completed",
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+    )
     response.headers["X-Correlation-Id"] = cid
     return response
 
@@ -209,7 +241,11 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch uncaught exceptions and preserve the standard error envelope."""
     del request
-    log.error("unhandled_exception", error_type=type(exc).__name__, message=str(exc), exc_info=True)
+    log.error(
+        "unhandled_exception",
+        error_type=type(exc).__name__,
+        message="An unexpected error occurred.",
+    )
     return JSONResponse(
         status_code=500,
         content=api_error(
@@ -275,10 +311,23 @@ async def create_video(request: Request) -> JSONResponse:
             os.close(fd)
             with open(tmp_path, "wb") as handle:
                 handle.write(content)
+            stage_key = f"staging/uploads/{uuid.uuid4().hex}{suffix}"
+            try:
+                S3Storage(settings).put_file(tmp_path, stage_key, content_type="video/mp4")
+            except Exception as exc:
+                raise api_error(
+                    "STORAGE_UNAVAILABLE",
+                    "Could not stage the uploaded video.",
+                    status=503,
+                    retryable=True,
+                ) from exc
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
             payload = {
                 "video_id": f"vid_{uuid.uuid4().hex[:12]}",
-                "local_path": tmp_path,
+                "stage_key": stage_key,
                 "filename": uploaded.filename or "upload.mp4",
+                "_correlation_id": request.state.correlation_id,
             }
         else:
             url = form.get("url")
@@ -306,6 +355,8 @@ async def create_video(request: Request) -> JSONResponse:
         raise api_error("VALIDATION_ERROR", "Either a file upload or URL is required.", status=422)
     if "url" in payload and not payload.get("url"):
         raise api_error("VALIDATION_ERROR", "The request URL cannot be empty.", status=422)
+    if "url" in payload:
+        payload["_correlation_id"] = request.state.correlation_id
 
     queue = JobQueue(
         max_attempts=settings.JOB_MAX_ATTEMPTS, heartbeat_stale_s=settings.JOB_HEARTBEAT_STALE_S
@@ -413,10 +464,17 @@ async def get_history(session_id: str) -> dict[str, Any]:
 async def create_render_job(session_id: str) -> JSONResponse:
     """Queue a render job for a session. Rendering is a later phase; jobs fail cleanly."""
     settings = get_settings()
+    try:
+        SessionRepository().load_session(session_id)
+    except SessionNotFoundError as exc:
+        raise api_error("NOT_FOUND", str(exc), status=404) from exc
     queue = JobQueue(
         max_attempts=settings.JOB_MAX_ATTEMPTS, heartbeat_stale_s=settings.JOB_HEARTBEAT_STALE_S
     )
-    job = queue.enqueue("render", {"session_id": session_id})
+    job = queue.enqueue(
+        "render",
+        {"session_id": session_id, "_correlation_id": correlation_id_var.get()},
+    )
     return JSONResponse(status_code=202, content={"job_id": job.id})
 
 
