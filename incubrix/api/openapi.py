@@ -29,6 +29,33 @@ ERROR_DETAILS_SCHEMA = {
 }
 
 SCHEMAS: dict[str, dict[str, Any]] = {
+    "ValidationError": {
+        "type": "object",
+        "title": "ValidationError",
+        "required": ["loc", "msg", "type"],
+        "properties": {
+            "loc": {
+                "type": "array",
+                "title": "Location",
+                "items": {
+                    "anyOf": [{"type": "string"}, {"type": "integer"}],
+                },
+            },
+            "msg": {"type": "string", "title": "Message"},
+            "type": {"type": "string", "title": "Error Type"},
+        },
+    },
+    "HTTPValidationError": {
+        "type": "object",
+        "title": "HTTPValidationError",
+        "properties": {
+            "detail": {
+                "type": "array",
+                "title": "Detail",
+                "items": {"$ref": "#/components/schemas/ValidationError"},
+            }
+        },
+    },
     "Error": {
         "type": "object",
         "required": ["code", "message", "retryable", "details"],
